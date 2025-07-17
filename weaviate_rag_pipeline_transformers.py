@@ -351,34 +351,58 @@ def main():
                 print(f"   {i+1}: {sentence[:100]}...")
 
             # Create answer - with improved fallback logic
-            partner_keywords = ['university of skövde', 'scania', 'smart eye', 'viscando']
             is_partner_query = any(keyword in query.lower() for keyword in ['partner', 'collaborator', 'organization', 'company', 'consortium'])
 
             relevant_sentences = []
             if sentences and is_partner_query:
                 # For partner queries, check if sentences contain actual partner names
                 for sentence in sentences:
-                    if any(keyword in sentence.lower() for keyword in partner_keywords):
+                    # Look for sentences that contain organization patterns
+                    if (re.search(r'\*\*\[[^\]]+\]\([^\)]+\)\*\*', sentence) or
+                        re.search(r'\*\*[^*]+\*\*:', sentence) or
+                        'organizations involved' in sentence.lower() or
+                        'partners' in sentence.lower() or
+                        'consortium' in sentence.lower()):
                         relevant_sentences.append(sentence)
 
-                # If no sentences contain partner names, fall back to raw content
+                # If no sentences contain partner names, extract them from raw content
                 if not relevant_sentences:
-                    print("🔄 No sentences with partner names found, using raw content...")
-                    raw_content = []
+                    print("🔄 No sentences with partner names found, scanning raw content...")
+                    org_names = []
                     for doc in documents[:3]:  # Use top 3 documents
-                        content = doc.content
-                        lines = content.split('\n')
-
+                        lines = doc.content.split('\n')
                         for line in lines:
-                            line = line.strip()
-                            # Look for lines that contain partner names or list structures
-                            if (any(name in line.lower() for name in partner_keywords) or
-                                ('**' in line and any(word in line.lower() for word in ['partner', 'organization'])) or
-                                line.startswith('*') and any(name in line.lower() for name in partner_keywords)):
-                                raw_content.append(line)
+                            stripped = line.strip()
+                            lower = stripped.lower()
 
-                    if raw_content:
-                        answer = "Here's what I found: " + " ".join(raw_content[:5])
+                            # Capture markdown links like **[Name](url)**
+                            match = re.search(r"\*\*\[([^\]]+)\]\([^\)]+\)\*\*", stripped)
+                            if match:
+                                org_names.append(match.group(1))
+                                continue
+
+                            # Capture bold names like **Name**: Description
+                            match = re.search(r"\*\*([^*]+)\*\*", stripped)
+                            if match and ':' in stripped and not any(k in match.group(1).lower() for k in ['organizations', 'partners', 'institutional']):
+                                org_names.append(match.group(1))
+                                continue
+
+                            # Capture comma separated lists after headings
+                            if 'organizations involved' in lower and ':' in stripped:
+                                after = stripped.split(':', 1)[1]
+                                org_names.extend([n.strip() for n in after.split(',') if n.strip()])
+
+                    # Remove duplicates while preserving order
+                    seen = set()
+                    unique_names = []
+                    for name in org_names:
+                        lname = name.lower()
+                        if lname not in seen:
+                            seen.add(lname)
+                            unique_names.append(name)
+
+                    if unique_names:
+                        answer = "The organizations involved are: " + ", ".join(unique_names)
                     else:
                         answer = "I don't know."
                 else:
