@@ -3,7 +3,7 @@ import re
 import time
 import requests
 from pathlib import Path
-from typing import List
+from typing import List, Dict
 import subprocess
 
 # Haystack v2 imports
@@ -133,58 +133,198 @@ def load_documents_from_folder(folder_path: str) -> List[Document]:
     return documents
 
 # --- Text Cleaning from simple_qa.py ---
-def deep_clean_text(text):
-    if not text:
-        return ""
-    
-    # COMMENTED OUT: Keep headers for better structure
-    # text = re.sub(r'^#+\s.*?$', '', text, flags=re.MULTILINE)
-    text = re.sub(r'^=+\s*$', '', text, flags=re.MULTILINE)
-    text = re.sub(r'^-+\s*$', '', text, flags=re.MULTILINE)
-    # COMMENTED OUT: Keep bold formatting like **Project Partners**
-    # text = re.sub(r'\*+([^*]+)\*+', r'\1', text)
-    text = re.sub(r'_+([^_]+)_+', r'\1', text)
-    text = re.sub(r'`+([^`]+)`+', r'\1', text)
-    # COMMENTED OUT: Keep links with organization names
-    # text = re.sub(r'\[([^\]]+)\]\([^\)]+\)', r'\1', text)
-    text = re.sub(r'http[s]?://\S+', '', text)
-    text = re.sub(r'^\s*[-*+]\s+', '', text, flags=re.MULTILINE)
-    text = re.sub(r'^\s*\d+\.\s+', '', text, flags=re.MULTILINE)
-    text = re.sub(r'\|+', ' ', text)
-    # COMMENTED OUT: Keep markdown characters that provide structure
-    # text = re.sub(r'[#*_`<>]', '', text)
-    text = re.sub(r'\s+', ' ', text)
-    text = re.sub(r'\n+', ' ', text)
-    
-    return text.strip()
+class QueryClassifier:
+    """Simple heuristic-based query classifier."""
 
-def extract_quality_sentences(text):
-    cleaned_text = deep_clean_text(text)
-    if not cleaned_text:
-        return []
-    
-    sentences = re.split(r'(?<=[.!?])\s+(?=[A-Z])', cleaned_text)
-    quality_sentences = []
-    
-    for sentence in sentences:
-        sentence = sentence.strip()
-        
-        if (len(sentence) < 25 or
-            len(sentence) > 400 or
-            len(sentence.split()) < 5 or
-            sentence.lower().startswith(('what', 'how', 'when', 'where', 'why', 'is there', 'are there')) or
-            any(artifact in sentence.lower() for artifact in ['comprehensive guide', 'table of contents', 'click here']) or
-            sentence.count('(') != sentence.count(')') or
-            any(artifact in sentence for artifact in ['###', '```', '---', '==='])):
-            continue
-        
-        sentence = re.sub(r'\s+', ' ', sentence).strip()
-        if not sentence.endswith(('.', '!', '?')):
-            sentence += '.'
-        
-        quality_sentences.append(sentence)
-    
-    return quality_sentences
+    def classify(self, query: str) -> str:
+        q = query.lower().strip()
+
+        entity_keywords = [
+            "who",
+            "organization",
+            "organizations",
+            "company",
+            "companies",
+            "partner",
+            "collaborator",
+        ]
+
+        if any(word in q for word in entity_keywords):
+            return "entity"
+
+        if q.startswith("what is") or q.startswith("define") or "definition" in q:
+            return "definition"
+
+
+        procedural_keywords = ["how", "step", "procedure", "process"]
+        if any(word in q for word in procedural_keywords):
+            return "procedural"
+
+        comparison_keywords = ["compare", "difference", " vs ", " versus "]
+        if any(word in q for word in comparison_keywords):
+            return "comparison"
+
+        return "general"
+
+
+class TextProcessor:
+    """Utility class for advanced text cleaning and processing."""
+
+    def clean_text(self, text: str, strategy: str = "balanced") -> str:
+        if not text:
+            return ""
+
+        if strategy == "preserve_structure":
+            text = re.sub(r"http[s]?://\S+", "", text)
+            text = re.sub(r"\s+", " ", text)
+            return text.strip()
+
+        if strategy == "clean_moderate":
+            text = re.sub(r"http[s]?://\S+", "", text)
+            text = re.sub(r"[_*`]+", "", text)
+            text = re.sub(r"\s+", " ", text)
+            text = re.sub(r"\n+", " ", text)
+            return text.strip()
+
+        if strategy == "preserve_lists":
+            text = re.sub(r"http[s]?://\S+", "", text)
+            text = re.sub(r"[_*`]+", "", text)
+            text = re.sub(r"\r\n", "\n", text)
+            text = re.sub(r"\n{3,}", "\n\n", text)
+            return text.strip()
+
+        # balanced strategy
+        text = re.sub(r"http[s]?://\S+", "", text)
+        text = re.sub(r"^\s*[-*+]\s+", "", text, flags=re.MULTILINE)
+        text = re.sub(r"^\s*\d+\.\s+", "", text, flags=re.MULTILINE)
+        text = re.sub(r"[#*_`<>|]", " ", text)
+        text = re.sub(r"\s+", " ", text)
+        text = re.sub(r"\n+", " ", text)
+        return text.strip()
+
+    def improve_sentence_boundary_detection(self, text: str) -> List[str]:
+        text = text.strip()
+        if not text:
+            return []
+        return re.split(r"(?<=[.!?])\s+(?=[A-Z0-9])", text)
+
+    def extract_entities(self, text: str) -> List[str]:
+        cleaned = self.clean_text(text, strategy="preserve_structure")
+        bullets = re.findall(r"^[\-*+]\s*(.+)", cleaned, flags=re.MULTILINE)
+        headings = re.findall(r"^#+\s*(.+)", cleaned, flags=re.MULTILINE)
+        capitalized = re.findall(r"\b([A-Z][A-Za-z0-9&]*(?:\s+[A-Z][A-Za-z0-9&]*){0,3})", cleaned)
+        names = bullets + headings + capitalized
+
+        seen = set()
+        unique = []
+        for name in names:
+            n = name.strip()
+            if n:
+                l = n.lower()
+                if l not in seen:
+                    seen.add(l)
+                    unique.append(n)
+        return unique
+
+    def preserve_context_formatting(self, text: str) -> str:
+        text = re.sub(r"\r\n", "\n", text)
+        text = re.sub(r"\n{3,}", "\n\n", text)
+        return text.strip()
+
+    def extract_quality_sentences(self, text: str, strategy: str = "balanced") -> List[str]:
+        cleaned_text = self.clean_text(text, strategy=strategy)
+        if not cleaned_text:
+            return []
+
+        sentences = self.improve_sentence_boundary_detection(cleaned_text)
+        quality_sentences = []
+
+        for sentence in sentences:
+            sentence = sentence.strip()
+
+            if (
+                len(sentence) < 25
+                or len(sentence) > 400
+                or len(sentence.split()) < 5
+                or sentence.lower().startswith(
+                    (
+                        "what",
+                        "how",
+                        "when",
+                        "where",
+                        "why",
+                        "is there",
+                        "are there",
+                    )
+                )
+                or any(
+                    artifact in sentence.lower()
+                    for artifact in ["comprehensive guide", "table of contents", "click here"]
+                )
+                or sentence.count("(") != sentence.count(")")
+                or any(artifact in sentence for artifact in ["###", "```", "---", "==="])
+            ):
+                continue
+
+            sentence = re.sub(r"\s+", " ", sentence).strip()
+            if not sentence.endswith((".", "!", "?")):
+                sentence += "."
+
+            quality_sentences.append(sentence)
+
+        return quality_sentences
+
+
+class AnswerGenerator:
+    """Generate answers in different styles depending on query type."""
+
+    def __init__(self, processor: TextProcessor):
+        self.processor = processor
+
+    def _score(self, sentence: str, query: str) -> float:
+        q_words = set(query.lower().split())
+        s_words = set(sentence.lower().split())
+        if not q_words:
+            return 0.0
+        return len(q_words & s_words) / len(q_words)
+
+    def _select_sentences(self, sentences: List[str], query: str, limit: int = 6) -> List[str]:
+        scored = [(self._score(s, query), s) for s in sentences]
+        scored.sort(key=lambda x: x[0], reverse=True)
+        return [s for _, s in scored[:limit] if s]
+
+    def generate(self, query: str, sentences: List[str], query_type: str, history: List[Dict]) -> str:
+        if not sentences:
+            if history:
+                return "I'm not sure. Previously we discussed: " + history[-1]["answer"]
+            return "I don't know."
+
+        top_sentences = self._select_sentences(sentences, query)
+
+        if query_type == "entity":
+            entities: List[str] = []
+            for s in top_sentences:
+                entities.extend(self.processor.extract_entities(s))
+            entities = list(dict.fromkeys(entities))
+            if entities:
+                return "\n".join(["Entities mentioned:", "- " + "\n- ".join(entities)])
+
+        if query_type == "definition":
+            for s in top_sentences:
+                if " is " in s.lower():
+                    return s
+            return top_sentences[0]
+
+        if query_type == "procedural":
+            steps = [f"{i+1}. {self.processor.clean_text(s, 'preserve_lists')}" for i, s in enumerate(top_sentences)]
+            return "Here are the steps:\n" + "\n".join(steps)
+
+        if query_type == "comparison":
+            return "Comparison:\n" + "\n".join(f"- {s}" for s in top_sentences[:4])
+
+        # general fallback
+        return create_natural_answer(top_sentences[:4], query)
+
 
 def create_natural_answer(sentences, query):
     if not sentences:
@@ -313,7 +453,26 @@ def main():
     print("Ask any question about your documents. Type 'quit' to exit.")
     
     conversation_history = []
-    
+    classifier = QueryClassifier()
+    processor = TextProcessor()
+    generator = AnswerGenerator(processor)
+
+    strategy_map = {
+        "entity": "preserve_structure",
+        "definition": "clean_moderate",
+        "procedural": "preserve_lists",
+        "comparison": "balanced",
+        "general": "balanced",
+    }
+
+    topk_map = {
+        "entity": 8,
+        "definition": 3,
+        "procedural": 5,
+        "comparison": 5,
+        "general": 5,
+    }
+
     while True:
         try:
             query = input("\n❓ You: ").strip()
@@ -326,12 +485,19 @@ def main():
             
             print("\n🔍 Thinking...")
             start_time = time.time()
-            
+
+            query_type = classifier.classify(query)
+            clean_strategy = strategy_map.get(query_type, "balanced")
+            top_k = topk_map.get(query_type, 5)
+
+            history_context = " ".join(h["query"] for h in conversation_history[-2:])
+            full_query = f"{history_context} {query}".strip() if history_context else query
+
             # Run the pipeline
             result = rag_pipeline.run(
                 {
-                    "text_embedder": {"text": query},
-                    "retriever": {"top_k": 5}
+                    "text_embedder": {"text": full_query},
+                    "retriever": {"top_k": top_k}
                 }
             )
             
@@ -341,77 +507,19 @@ def main():
             sources = set()
 
             for doc in documents:
-                extracted = extract_quality_sentences(doc.content)
+                extracted = processor.extract_quality_sentences(
+                    doc.content, strategy=clean_strategy
+                )
                 sentences.extend(extracted)
-                sources.add(doc.meta.get('filename', 'Unknown'))
+                sources.add(doc.meta.get("filename", "Unknown"))
 
             # DEBUG: Show what sentences were extracted
             print(f"🔍 DEBUG: Found {len(sentences)} quality sentences")
             for i, sentence in enumerate(sentences[:3]):
                 print(f"   {i+1}: {sentence[:100]}...")
 
-            # Create answer - with improved fallback logic
-            is_partner_query = any(keyword in query.lower() for keyword in ['partner', 'collaborator', 'organization', 'company', 'consortium'])
-
-            relevant_sentences = []
-            if sentences and is_partner_query:
-                # For partner queries, check if sentences contain actual partner names
-                for sentence in sentences:
-                    # Look for sentences that contain organization patterns
-                    if (re.search(r'\*\*\[[^\]]+\]\([^\)]+\)\*\*', sentence) or
-                        re.search(r'\*\*[^*]+\*\*:', sentence) or
-                        'organizations involved' in sentence.lower() or
-                        'partners' in sentence.lower() or
-                        'consortium' in sentence.lower()):
-                        relevant_sentences.append(sentence)
-
-                # If no sentences contain partner names, extract them from raw content
-                if not relevant_sentences:
-                    print("🔄 No sentences with partner names found, scanning raw content...")
-                    org_names = []
-                    for doc in documents[:3]:  # Use top 3 documents
-                        lines = doc.content.split('\n')
-                        for line in lines:
-                            stripped = line.strip()
-                            lower = stripped.lower()
-
-                            # Capture markdown links like **[Name](url)**
-                            match = re.search(r"\*\*\[([^\]]+)\]\([^\)]+\)\*\*", stripped)
-                            if match:
-                                org_names.append(match.group(1))
-                                continue
-
-                            # Capture bold names like **Name**: Description
-                            match = re.search(r"\*\*([^*]+)\*\*", stripped)
-                            if match and ':' in stripped and not any(k in match.group(1).lower() for k in ['organizations', 'partners', 'institutional']):
-                                org_names.append(match.group(1))
-                                continue
-
-                            # Capture comma separated lists after headings
-                            if 'organizations involved' in lower and ':' in stripped:
-                                after = stripped.split(':', 1)[1]
-                                org_names.extend([n.strip() for n in after.split(',') if n.strip()])
-
-                    # Remove duplicates while preserving order
-                    seen = set()
-                    unique_names = []
-                    for name in org_names:
-                        lname = name.lower()
-                        if lname not in seen:
-                            seen.add(lname)
-                            unique_names.append(name)
-
-                    if unique_names:
-                        answer = "The organizations involved are: " + ", ".join(unique_names)
-                    else:
-                        answer = "I don't know."
-                else:
-                    answer = create_natural_answer(relevant_sentences[:4], query)
-            elif sentences:
-                # For non-partner queries, use normal logic
-                answer = create_natural_answer(sentences[:4], query)
-            else:
-                answer = "I don't know."
+            # Generate answer using new generator
+            answer = generator.generate(query, sentences, query_type, conversation_history)
 
             # Add sources (rest remains the same)
             if sources and answer != "I don't know.":
