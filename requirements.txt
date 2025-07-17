@@ -1,0 +1,19 @@
+# Core RAG Framework
+haystack-ai==2.15.2
+weaviate-haystack==6.1.0
+
+# Machine Learning and NLP
+sentence-transformers==5.0.0
+transformers==4.53.2
+torch>=2.0.0
+
+# Document Processing
+PyPDF2==3.0.1
+python-docx==1.2.0
+
+# Web and API
+requests==2.32.4
+
+# Utilities
+pathlib
+typing-extensions

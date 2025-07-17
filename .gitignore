@@ -1,0 +1,104 @@
+# Python Environment
+haystack-env/
+venv/
+env/
+.env
+.venv
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+share/python-wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+MANIFEST
+
+# IDE and Editor files
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+.DS_Store
+Thumbs.db
+
+# Jupyter Notebook
+.ipynb_checkpoints
+
+# Docker and Containers
+.dockerignore
+docker-compose.override.yml
+*.log
+
+# Weaviate and Vector Database Data
+weaviate_data/
+vector_db/
+.weaviate/
+
+# Model Downloads and Cache
+.cache/
+models/
+*.model
+*.bin
+transformers_cache/
+sentence_transformers_cache/
+
+# API Keys and Secrets
+.env.local
+.env.production
+.env.development
+secrets.txt
+api_keys.txt
+config.ini
+settings.json
+
+# Large Files and Data
+*.zip
+*.tar.gz
+*.rar
+large_documents/
+test_data/
+backup/
+
+# macOS
+.DS_Store
+.AppleDouble
+.LSOverride
+
+# Windows
+Thumbs.db
+ehthumbs.db
+Desktop.ini
+
+# Linux
+*~
+
+# Temporary files
+*.tmp
+*.temp
+.cache
+.pytest_cache/
+.coverage
+.coverage.*
+coverage.xml
+*.cover
+*.py,cover
+.hypothesis/
+
+# Log files
+*.log
+logs/
