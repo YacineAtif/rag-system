@@ -1,0 +1,37 @@
+# RAG System Configuration
+# Replaces hardcoded values from existing scripts
+
+# Document Processing
+documents_folder: "documents"
+chunk_size: 500
+chunk_overlap: 100
+development: true
+
+# Vector Store (from weaviate_rag_pipeline_transformers.py)
+weaviate:
+  url: "http://localhost:8080"
+  index_name: "rag_docs"
+
+# Embedding (from existing scripts)
+embedding:
+  model_name: "sentence-transformers/all-MiniLM-L6-v2"
+
+# Future DeBERTa Configuration
+deberta:
+  model_name: "microsoft/deberta-v3-base-squad2"
+  max_length: 512
+  confidence_threshold: 0.7
+  max_answer_length: 256
+
+# Future Qwen Configuration
+qwen:
+  model_name: "qwen-7b-chat"
+  api_url: ""
+  api_key: ""
+  max_tokens: 1000
+  temperature: 0.1
+
+# Hybrid Processing
+hybrid:
+  confidence_threshold: 0.75
+  enable_qwen_fallback: true
