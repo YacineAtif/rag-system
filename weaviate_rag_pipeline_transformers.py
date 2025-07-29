@@ -148,6 +148,15 @@ class QueryClassifier:
             "companies",
             "partner",
             "collaborator",
+            "team",
+            "group",
+            "member",
+            "participant",
+            "contributor",
+            "stakeholder",
+            "department",
+            "division",
+            "institution",
         ]
 
         if any(word in q for word in entity_keywords):
@@ -303,12 +312,43 @@ class AnswerGenerator:
         top_sentences = self._select_sentences(sentences, query)
 
         if query_type == "entity":
+            relationship_keywords = [
+                "partner",
+                "collaborator",
+                "organization",
+                "company",
+                "involved",
+                "working",
+                "team",
+                "group",
+                "member",
+                "participant",
+                "contributor",
+                "stakeholder",
+                "entity",
+                "institution",
+                "department",
+                "division",
+            ]
+
+            if any(word in query.lower() for word in relationship_keywords):
+                try:
+                    llm = LLMGenerator()
+                    answer = llm.generate(query, top_sentences[:4])
+                    if answer:
+                        return answer
+                except Exception:
+                    pass
+
             entities: List[str] = []
             for s in top_sentences:
                 entities.extend(self.processor.extract_entities(s))
             entities = list(dict.fromkeys(entities))
             if entities:
-                return "\n".join(["Entities mentioned:", "- " + "\n- ".join(entities)])
+                return "\n".join([
+                    "Entities mentioned:",
+                    "- " + "\n- ".join(entities),
+                ])
 
         if query_type == "definition":
             try:
