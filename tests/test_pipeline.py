@@ -90,5 +90,22 @@ class TestHybridPipeline(unittest.TestCase):
                 answer = generator.generate('What is evidence theory?', sentences, 'definition', [])
         self.assertEqual(answer, 'LLM definition reply.')
 
+    def test_entity_relationship_query_uses_llm(self):
+        processor = TextProcessor()
+        generator = AnswerGenerator(processor)
+        sentences = ["Alice and Bob collaborated on the project."]
+        with patch('backend.llm_generator.LLMGenerator.generate', return_value='Alice worked with Bob on the project.'):
+            with patch.dict('os.environ', {'OPENAI_API_KEY': 'dummy'}):
+                answer = generator.generate('Who did Alice collaborate with?', sentences, 'entity', [])
+        self.assertEqual(answer, 'Alice worked with Bob on the project.')
+
+    def test_entity_list_fallback(self):
+        processor = TextProcessor()
+        generator = AnswerGenerator(processor)
+        sentences = ["Charlie, Dana and Erin attended the meeting."]
+        answer = generator.generate('Who was mentioned?', sentences, 'entity', [])
+        self.assertIn('Entities mentioned:', answer)
+        self.assertIn('Charlie', answer)
+
 if __name__ == '__main__':
     unittest.main()
