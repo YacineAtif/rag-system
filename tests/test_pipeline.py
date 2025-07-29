@@ -81,5 +81,14 @@ class TestHybridPipeline(unittest.TestCase):
         self.assertIsInstance(answer, str)
         self.assertTrue(len(answer) > 0)
 
+    def test_definition_answer_uses_llm(self):
+        processor = TextProcessor()
+        generator = AnswerGenerator(processor)
+        sentences = ["Evidence Theory is a mathematical framework for reasoning with uncertainty."]
+        with patch('backend.llm_generator.LLMGenerator.generate', return_value='LLM definition reply.'):
+            with patch.dict('os.environ', {'OPENAI_API_KEY': 'dummy'}):
+                answer = generator.generate('What is evidence theory?', sentences, 'definition', [])
+        self.assertEqual(answer, 'LLM definition reply.')
+
 if __name__ == '__main__':
     unittest.main()
