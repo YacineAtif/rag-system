@@ -1,23 +1,31 @@
-# Core RAG Framework Dependencies
-haystack-ai==2.15.2
-weaviate-client>=3.15.0
+# Build tools for faster installation
+wheel>=0.37.0
 
-# AI/ML Components (for future DeBERTa/Qwen integration)
-sentence-transformers>=2.2.0
-transformers>=4.20.0
-torch>=1.9.0
+# Core RAG Framework
+haystack-ai==2.15.2
+weaviate-haystack==6.1.0
+weaviate-client>=4.16.0
+
+# Machine Learning and NLP - Fixed versions for compatibility
+numpy>=1.21.0,<2.0.0  # Prevent NumPy 2.x compatibility issues
+sentence-transformers>=4.1.0,<6.0.0
+transformers>=4.20.0,<5.0.0
+torch>=2.0.0
 
 # Document Processing
-PyPDF2>=3.0.1  # PDF support
-python-docx>=1.2.0  # Word document support
+PyPDF2>=3.0.1
+python-docx>=1.2.0
 
-# Configuration Management
-PyYAML>=6.0  # YAML configuration files
-
-# HTTP Requests
+# Configuration and utilities
+PyYAML>=6.0
 requests>=2.32.4
+# pathlib is built-in for Python 3.4+ (removed pathlib2 dependency)
 
-# Development Dependencies (optional)
-pytest>=7.0.0  # Testing framework
+# Testing (optional but recommended)
+pytest>=7.0.0
 
-# Note: Standard library packages like dataclasses, logging, pathlib, and typing are included with Python and do not require installation.
+# Dependencies that might be needed
+tqdm>=4.64.0
+
+# Optional: Fix protobuf warnings (uncomment if needed)
+# protobuf>=5.29.0,<6.0

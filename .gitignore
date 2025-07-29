@@ -1,9 +1,12 @@
-# Python Environment
-haystack-env/
+# Virtual Environments
 venv/
+rag-env/
 env/
-.env
-.venv
+ENV/
+.venv/
+.env/
+
+# Python
 __pycache__/
 *.py[cod]
 *$py.class
@@ -21,84 +24,113 @@ parts/
 sdist/
 var/
 wheels/
-share/python-wheels/
 *.egg-info/
 .installed.cfg
 *.egg
-MANIFEST
 
-# IDE and Editor files
+# PyInstaller
+*.manifest
+*.spec
+
+# Installer logs
+pip-log.txt
+pip-delete-this-directory.txt
+
+# Unit test / coverage reports
+htmlcov/
+.tox/
+.coverage
+.coverage.*
+.cache
+nosetests.xml
+coverage.xml
+*.cover
+.hypothesis/
+.pytest_cache/
+
+# Jupyter Notebook
+.ipynb_checkpoints
+
+# Environment variables
+.env
+.venv
+env/
+venv/
+ENV/
+env.bak/
+venv.bak/
+
+# IDE
 .vscode/
 .idea/
 *.swp
 *.swo
 *~
+
+# OS
 .DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+ehthumbs.db
 Thumbs.db
 
-# Jupyter Notebook
-.ipynb_checkpoints
-
-# Docker and Containers
-.dockerignore
-docker-compose.override.yml
+# Project specific
+documents/private/
+documents/confidential/
 *.log
+logs/
+temp/
+tmp/
 
-# Weaviate and Vector Database Data
+# Weaviate data (if using local persistence)
 weaviate_data/
-vector_db/
 .weaviate/
 
-# Model Downloads and Cache
+# Model cache
 .cache/
 models/
-*.model
-*.bin
-transformers_cache/
-sentence_transformers_cache/
+.sentence_transformers/
 
 # API Keys and Secrets
 .env.local
 .env.production
-.env.development
-secrets.txt
-api_keys.txt
-config.ini
-settings.json
+.env.staging
+config/secrets.yaml
+*.key
+*.pem
+*.p12
+*.pfx
 
-# Large Files and Data
-*.zip
-*.tar.gz
-*.rar
-large_documents/
-test_data/
-backup/
+# Large model files
+*.bin
+*.onnx
+*.h5
+*.pt
+*.pth
+*.safetensors
 
-# macOS
-.DS_Store
-.AppleDouble
-.LSOverride
+# Backup files
+*.bak
+*.backup
+
+# Docker
+.dockerignore
+docker-compose.override.yml
+
+# MacOS
+*.dmg
+*.app
 
 # Windows
+*.exe
+*.msi
 Thumbs.db
 ehthumbs.db
 Desktop.ini
 
 # Linux
 *~
-
-# Temporary files
-*.tmp
-*.temp
-.cache
-.pytest_cache/
-.coverage
-.coverage.*
-coverage.xml
-*.cover
-*.py,cover
-.hypothesis/
-
-# Log files
-*.log
-logs/
+.fuse_hidden*
+.nfs*
