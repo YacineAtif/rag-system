@@ -4,6 +4,7 @@ import time
 import requests
 from pathlib import Path
 from typing import List, Dict
+from backend.llm_generator import LLMGenerator
 import subprocess
 
 # Haystack v2 imports
@@ -321,6 +322,15 @@ class AnswerGenerator:
 
         if query_type == "comparison":
             return "Comparison:\n" + "\n".join(f"- {s}" for s in top_sentences[:4])
+
+        if query_type == "general":
+            try:
+                llm = LLMGenerator()
+                answer = llm.generate(query, top_sentences[:4])
+                if answer:
+                    return answer
+            except Exception:
+                pass
 
         # general fallback
         return create_natural_answer(top_sentences[:4], query)

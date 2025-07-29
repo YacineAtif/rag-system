@@ -5,6 +5,7 @@ Tests for the hybrid processing pipeline.
 import unittest
 import sys
 from pathlib import Path
+from unittest.mock import patch
 
 # Add project root to path
 sys.path.append(str(Path(__file__).parent.parent))
@@ -12,6 +13,7 @@ sys.path.append(str(Path(__file__).parent.parent))
 try:
     from processing.hybrid_pipeline import HybridPipeline, ProcessingMode, QueryResult
     from backend.config import Config
+    from weaviate_rag_pipeline_transformers import TextProcessor, AnswerGenerator
     PIPELINE_AVAILABLE = True
 except ImportError:
     PIPELINE_AVAILABLE = False
@@ -68,6 +70,16 @@ class TestHybridPipeline(unittest.TestCase):
         contexts = ["context"]
         result = self.pipeline.process_query(question, contexts)
         self.assertEqual(result.processing_mode, 'error')
+
+    def test_answer_generator_with_llm(self):
+        processor = TextProcessor()
+        generator = AnswerGenerator(processor)
+        sentences = ["AI is intelligence demonstrated by machines."]
+        with patch('backend.llm_generator.LLMGenerator.generate', return_value='A short answer.'):
+            with patch.dict('os.environ', {'OPENAI_API_KEY': 'dummy'}):
+                answer = generator.generate('What is AI?', sentences, 'general', [])
+        self.assertIsInstance(answer, str)
+        self.assertTrue(len(answer) > 0)
 
 if __name__ == '__main__':
     unittest.main()

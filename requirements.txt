@@ -29,3 +29,6 @@ tqdm>=4.64.0
 
 # Optional: Fix protobuf warnings (uncomment if needed)
 # protobuf>=5.29.0,<6.0
+# LLM client
+openai>=1.0.0
+
