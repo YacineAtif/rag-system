@@ -311,6 +311,14 @@ class AnswerGenerator:
                 return "\n".join(["Entities mentioned:", "- " + "\n- ".join(entities)])
 
         if query_type == "definition":
+            try:
+                llm = LLMGenerator()
+                answer = llm.generate(query, top_sentences[:4])
+                if answer:
+                    return answer
+            except Exception:
+                pass
+
             for s in top_sentences:
                 if " is " in s.lower():
                     return s
