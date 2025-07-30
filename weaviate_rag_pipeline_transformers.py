@@ -3,7 +3,7 @@ import re
 import time
 import requests
 from pathlib import Path
-from typing import List, Dict
+from typing import List, Dict, Optional
 from backend.config import Config
 from backend.qa_models import DeBERTaQA, QwenGenerator
 import subprocess
@@ -289,7 +289,7 @@ class TextProcessor:
 class AnswerGenerator:
     """Generate answers using DeBERTaQA or Qwen depending on query type."""
 
-    def __init__(self, processor: TextProcessor, config: Config | None = None):
+    def __init__(self, processor: TextProcessor, config: Optional[Config] = None):
         self.processor = processor
         self.config = config or Config()
 
