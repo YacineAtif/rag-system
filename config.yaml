@@ -1,70 +1,161 @@
 # RAG System Configuration
-# Replaces hardcoded values from existing scripts
+# Enhanced multi-model system with Qwen + DeBERTa focus
 
-# Document Processing (EXISTING - Preserved)
+# Document Processing (PRESERVED)
 documents_folder: "documents"
 chunk_size: 500
 chunk_overlap: 100
 development: true
 
-# Vector Store (EXISTING - Preserved)
+# Vector Store (PRESERVED)
 weaviate:
   url: "http://localhost:8080"
   index_name: "rag_docs"
 
-# Embedding (EXISTING - Preserved)
+# Embedding (PRESERVED)
 embedding:
   model_name: "sentence-transformers/all-MiniLM-L6-v2"
 
-# Future DeBERTa Configuration (EXISTING - Preserved)
+# OpenAI Configuration (DISABLED - Replaced by Qwen)
+openai:
+  enabled: false
+  api_key: ""
+  model: "gpt-3.5-turbo"
+  fallback_only: true  # Only use as emergency fallback
+
+# PRIMARY: Qwen Configuration (Enhanced as Main LLM)
+qwen:
+  enabled: true
+  model_name: "Qwen/Qwen2.5-7B-Instruct"  # Updated to latest Qwen model
+  local_model: true          # Use local model instead of API
+  api_url: ""               # Empty for local mode
+  api_key: ""               # Not needed for local
+  max_tokens: 1000
+  temperature: 0.1          # Low temperature for focused responses
+  top_p: 0.9
+  max_length: 2048
+  device: "auto"            # Auto-detect GPU/CPU
+  trust_remote_code: true   # Required for Qwen models
+  torch_dtype: "auto"       # Automatic precision
+  confidence_estimation: true
+  
+  # Performance settings
+  batch_size: 1
+  max_new_tokens: 512
+  do_sample: true
+  
+  # Local model caching
+  cache_dir: "./models/qwen"
+  download_if_missing: true
+
+# SECONDARY: DeBERTa Configuration (Enhanced for QA)
 deberta:
-  model_name: "microsoft/deberta-v3-base-squad2"
+  enabled: true
+  model_name: "microsoft/deberta-v3-large"  # Upgraded to large for better performance
   max_length: 512
   confidence_threshold: 0.7
   max_answer_length: 256
+  stride: 128               # For handling long contexts
+  device: "auto"
+  
+  # Performance settings
+  batch_size: 8
+  top_k: 5
+  top_p: 0.9
+  
+  # Answer extraction settings
+  min_answer_length: 3
+  max_question_length: 256
+  handle_impossible_answer: true
+  
+  # Local model caching
+  cache_dir: "./models/deberta"
 
-# Future Qwen Configuration (EXISTING - Preserved)
-qwen:
-  model_name: "qwen-7b-chat"
-  api_url: ""
-  api_key: ""
-  max_tokens: 1000
-  temperature: 0.1
+# Multi-Model System Configuration
+multi_model:
+  enabled: true
+  primary_llm: "qwen"       # Qwen as primary generator
+  qa_model: "deberta"       # DeBERTa for precise extraction
+  
+  # Model selection strategy
+  model_selection:
+    factual_queries: ["deberta", "qwen"]     # Try DeBERTa first for facts
+    definition_queries: ["deberta", "qwen"]  # DeBERTa for definitions
+    explanatory_queries: ["qwen"]            # Qwen for explanations
+    partnership_queries: ["qwen"]            # Qwen for complex relationships
+    technical_queries: ["qwen", "deberta"]   # Qwen primary, DeBERTa validation
+    general_queries: ["qwen"]                # Qwen for general questions
+  
+  # Confidence thresholds for model selection
+  confidence_thresholds:
+    deberta_minimum: 0.7      # High threshold for DeBERTa
+    qwen_minimum: 0.5         # Lower threshold for Qwen
+    fallback_threshold: 0.3   # Minimum for any response
+  
+  # Model combination strategies
+  ensemble_mode: "confidence_weighted"  # "best_confidence", "weighted_average", "voting"
+  combine_answers: false                # Set true to combine multiple model outputs
+  
+  # Performance settings
+  timeout_seconds: 45
+  max_retries: 2
+  parallel_inference: false  # Set true if sufficient resources
+  
+  # Memory management
+  offload_unused_models: true
+  max_memory_usage: "80%"
 
-# Hybrid Processing (EXISTING - Preserved)
+# Enhanced Hybrid Processing
 hybrid:
+  enabled: true
   confidence_threshold: 0.75
-  enable_qwen_fallback: true
+  enable_qwen_primary: true      # Qwen as primary instead of OpenAI
+  enable_deberta_qa: true        # Enable DeBERTa question answering
+  enable_openai_fallback: false  # Disable OpenAI fallback
+  
+  # Processing pipeline
+  pipeline_order: ["deberta", "qwen", "simple_concat"]
+  early_stopping: true          # Stop at first confident answer
 
-# NEW: Section Priority Mapping - Maps query types to document sections
+# Section Priority Mapping (PRESERVED - Enhanced)
 section_priorities:
   # Partnership/Organization queries
   partnership_queries:
     keywords: ["partner", "collaborator", "organization", "company", "team", "consortium", "stakeholder", "member", "involved", "working"]
     priority_sections: ["collaborators", "partners", "team", "organization", "consortium", "stakeholders", "project partners", "project team"]
-    boost_factor: 2.5  # Strong boost for partnership information
+    boost_factor: 2.5
+    preferred_model: "qwen"     # Qwen better for relationship synthesis
   
   # Technical/Architecture queries  
   technical_queries:
     keywords: ["architecture", "system", "design", "implementation", "framework", "module", "component", "structure"]
     priority_sections: ["architecture", "system", "design", "technical", "implementation", "framework", "components", "modules"]
     boost_factor: 1.8
+    preferred_model: "qwen"
+  
+  # Factual/Definition queries
+  factual_queries:
+    keywords: ["what is", "define", "definition", "meaning", "explain", "describe"]
+    priority_sections: ["definition", "overview", "introduction", "background"]
+    boost_factor: 2.0
+    preferred_model: "deberta"  # DeBERTa better for factual extraction
   
   # Methodology queries
   methodology_queries:
     keywords: ["method", "approach", "process", "procedure", "algorithm", "technique", "strategy", "evidence theory"]
     priority_sections: ["methodology", "methods", "approach", "process", "algorithm", "procedure", "theory", "evidence"]
     boost_factor: 1.8
+    preferred_model: "qwen"
 
   # Overview/Background queries
   background_queries:
-    keywords: ["overview", "introduction", "background", "summary", "about", "what is", "describe", "foreword"]
+    keywords: ["overview", "introduction", "background", "summary", "about", "foreword"]
     priority_sections: ["overview", "introduction", "background", "summary", "foreword", "abstract", "project overview"]
     boost_factor: 1.5
+    preferred_model: "qwen"
 
-# NEW: Semantic Metadata Patterns for better search
+# Semantic Metadata Patterns (PRESERVED)
 semantic_metadata:
-  # Organization/Partnership patterns
   organization_patterns:
     - "**Project Partners**"
     - "**Organizations involved**"
@@ -75,7 +166,6 @@ semantic_metadata:
     - "**Project Team Members**"
     - "**Institutional partners**"
   
-  # Technical patterns
   technical_patterns:
     - "**System Components**"
     - "**Architecture**"
@@ -84,7 +174,6 @@ semantic_metadata:
     - "**Modules**"
     - "**Framework**"
   
-  # Process/Theory patterns
   process_patterns:
     - "**Methodology**"
     - "**Evidence Theory**"
@@ -93,79 +182,94 @@ semantic_metadata:
     - "**Procedure**"
     - "**Steps**"
 
-# NEW: Enhanced Chunk Processing
+# Enhanced Chunk Processing (PRESERVED)
 chunk_processing:
-  # Add semantic markers based on document structure
   add_section_markers: true
-  
-  # Enhance chunks with metadata context
   add_metadata_context: true
-  
-  # Maximum context to add to each chunk
   max_context_length: 100
   
-  # Section header patterns to recognize
   section_patterns:
-    - "^#{1,6}\\s+(.+)"  # Markdown headers (## Section Name)
-    - "^\\*\\*(.+)\\*\\*:?"  # Bold patterns (**Bold Text**)
-    - "^\\d+\\.\\s+(.+)"  # Numbered sections (1. Section)
+    - "^#{1,6}\\s+(.+)"
+    - "^\\*\\*(.+)\\*\\*:?"
+    - "^\\d+\\.\\s+(.+)"
 
-# NEW: Enhanced Query Processing
+# Enhanced Query Processing (PRESERVED)
 query_processing:
-  # Expand queries with synonyms for better matching
   expand_synonyms: true
   
-  # Synonym mappings (domain-agnostic)
   synonyms:
     partnership: ["collaboration", "consortium", "team", "organization", "alliance", "collaborators", "partners"]
     technical: ["system", "architecture", "framework", "implementation", "design", "components", "modules"]
     process: ["methodology", "approach", "procedure", "workflow", "method", "theory"]
     overview: ["summary", "introduction", "background", "description", "about", "foreword"]
 
-# NEW: Enhanced Retrieval Settings
+# Enhanced Retrieval Settings (PRESERVED + Enhanced)
 retrieval:
-  # Default number of chunks to retrieve
   default_top_k: 5
-  
-  # Number of chunks for partnership queries (may need more context)
   partnership_top_k: 7
-  
-  # Minimum similarity threshold
+  factual_top_k: 4          # Fewer chunks for precise factual answers
   similarity_threshold: 0.3
-  
-  # Re-ranking based on section priority
   enable_section_reranking: true
-  
-  # Boost factor for exact section name matches
   section_name_boost: 3.0
-
-# NEW: Enhanced LLM Prompting
-prompting:
-  # Instruction to prioritize specific information types
-  context_instructions:
-    partnership: "Focus on specific organization names, roles, and contributions. Include all mentioned partners with their exact names and detailed responsibilities. List each organization clearly."
-    technical: "Provide detailed technical information with specific component names, architectural details, and system relationships."
-    methodology: "Explain the methodology, approach, or theoretical framework with specific details and terminology."
-    general: "Synthesize the information into coherent, natural language while preserving specific names, details, and factual accuracy."
-
-# NEW: Domain Detection (Optional - for future multi-domain systems)
-domain_detection:
-  enabled: false  # Can be enabled later for multi-domain support
   
-  # Keywords that suggest specific domains
+  # Model-specific retrieval settings
+  deberta_max_context: 400   # Shorter context for DeBERTa
+  qwen_max_context: 800      # Longer context for Qwen
+
+# Enhanced LLM Prompting (PRESERVED + Enhanced)
+prompting:
+  context_instructions:
+    partnership: "Focus on specific organization names, roles, and contributions. Include all mentioned partners with their exact names and detailed responsibilities. List each organization clearly with their specific contributions."
+    technical: "Provide detailed technical information with specific component names, architectural details, and system relationships. Use precise technical terminology."
+    factual: "Extract the most accurate and specific factual information. Provide direct, precise answers based on the evidence in the context."
+    methodology: "Explain the methodology, approach, or theoretical framework with specific details and terminology. Focus on the process and underlying principles."
+    general: "Synthesize the information into coherent, natural language while preserving specific names, details, and factual accuracy."
+  
+  # Model-specific prompting
+  qwen_system_prompt: "You are a helpful assistant that provides accurate, well-structured answers based on the given context. Focus on clarity and completeness."
+  deberta_instruction: "Answer the question precisely based on the given context. If the answer is not in the context, say so."
+
+# Domain Detection (PRESERVED)
+domain_detection:
+  enabled: false
+  
   domain_keywords:
     traffic_safety: ["traffic", "intersection", "driving", "vehicle", "road", "i2connect"]
     healthcare: ["patient", "medical", "diagnosis", "treatment", "clinical"]
     finance: ["investment", "portfolio", "risk", "capital", "financial"]
     research: ["study", "analysis", "methodology", "findings", "research", "evidence"]
 
-# NEW: Logging and Debugging
+# Logging and Debugging (ENHANCED)
 logging:
-  # Enable detailed retrieval logging
   log_chunk_retrieval: true
-  
-  # Log section matching for debugging
   log_section_matching: true
-  
-  # Log query classification
   log_query_classification: true
+  log_model_selection: true     # Log which model was chosen
+  log_confidence_scores: true   # Log confidence assessments
+  log_performance_metrics: true # Log response times and quality
+  
+  # Log levels
+  level: "INFO"
+  file: "logs/rag_system.log"
+  
+  # Performance monitoring
+  track_model_performance: true
+  save_response_analytics: true
+
+# Hardware and Performance (NEW)
+hardware:
+  # GPU settings
+  use_gpu: true
+  gpu_memory_fraction: 0.8
+  
+  # CPU settings
+  num_threads: 4
+  
+  # Memory management
+  max_model_memory: "8GB"
+  enable_model_offloading: true
+  
+  # Caching
+  enable_response_cache: true
+  cache_size: 1000
+  cache_ttl: 3600  # 1 hour
