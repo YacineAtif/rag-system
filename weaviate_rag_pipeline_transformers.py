@@ -4,7 +4,8 @@ import time
 import requests
 from pathlib import Path
 from typing import List, Dict
-from backend.llm_generator import LLMGenerator
+from backend.config import Config
+from backend.qa_models import DeBERTaQA, QwenGenerator
 import subprocess
 
 # Haystack v2 imports
@@ -286,10 +287,11 @@ class TextProcessor:
 
 
 class AnswerGenerator:
-    """Generate answers in different styles depending on query type."""
+    """Generate answers using DeBERTaQA or Qwen depending on query type."""
 
-    def __init__(self, processor: TextProcessor):
+    def __init__(self, processor: TextProcessor, config: Config | None = None):
         self.processor = processor
+        self.config = config or Config()
 
     def _score(self, sentence: str, query: str) -> float:
         q_words = set(query.lower().split())
@@ -311,76 +313,78 @@ class AnswerGenerator:
 
         top_sentences = self._select_sentences(sentences, query)
 
-        if query_type == "entity":
-            relationship_keywords = [
-                "partner",
-                "collaborator",
-                "organization",
-                "company",
-                "involved",
-                "working",
-                "team",
-                "group",
-                "member",
-                "participant",
-                "contributor",
-                "stakeholder",
-                "entity",
-                "institution",
-                "department",
-                "division",
-            ]
-
-            if any(word in query.lower() for word in relationship_keywords):
-                try:
-                    llm = LLMGenerator()
-                    answer = llm.generate(query, top_sentences[:4])
-                    if answer:
-                        return answer
-                except Exception:
-                    pass
-
-            entities: List[str] = []
-            for s in top_sentences:
-                entities.extend(self.processor.extract_entities(s))
-            entities = list(dict.fromkeys(entities))
-            if entities:
-                return "\n".join([
-                    "Entities mentioned:",
-                    "- " + "\n- ".join(entities),
-                ])
-
+        # definition/factual queries use DeBERTa first
         if query_type == "definition":
+            qa = DeBERTaQA(self.config)
+            qa_res = qa.answer(query, top_sentences[:4])
+            if qa_res.get("confidence", 0) >= self.config.deberta.confidence_threshold and qa_res.get("answer"):
+                return qa_res["answer"]
+
+            gen = QwenGenerator(self.config)
+            gen_res = gen.generate(query, top_sentences[:4])
+            if gen_res.get("answer"):
+                return gen_res["answer"]
+
+            return create_natural_answer(top_sentences[:4], query)
+
+        # non-factual queries handled directly by Qwen
+        if query_type in {"entity", "procedural", "comparison", "general"}:
+            if query_type == "entity":
+                relationship_keywords = [
+                    "partner",
+                    "collaborator",
+                    "organization",
+                    "company",
+                    "involved",
+                    "working",
+                    "team",
+                    "group",
+                    "member",
+                    "participant",
+                    "contributor",
+                    "stakeholder",
+                    "entity",
+                    "institution",
+                    "department",
+                    "division",
+                ]
+
+                if any(word in query.lower() for word in relationship_keywords):
+                    try:
+                        llm = QwenGenerator(self.config)
+                        answer_res = llm.generate(query, top_sentences[:4])
+                        if answer_res.get("answer"):
+                            return answer_res["answer"]
+                    except Exception:
+                        pass
+
+                entities: List[str] = []
+                for s in top_sentences:
+                    entities.extend(self.processor.extract_entities(s))
+                entities = list(dict.fromkeys(entities))
+                if entities:
+                    return "\n".join([
+                        "Entities mentioned:",
+                        "- " + "\n- ".join(entities),
+                    ])
+
+            if query_type == "procedural":
+                steps = [f"{i+1}. {self.processor.clean_text(s, 'preserve_lists')}" for i, s in enumerate(top_sentences)]
+                return "Here are the steps:\n" + "\n".join(steps)
+
+            if query_type == "comparison":
+                return "Comparison:\n" + "\n".join(f"- {s}" for s in top_sentences[:4])
+
+            # general and other entity cases use Qwen
             try:
-                llm = LLMGenerator()
-                answer = llm.generate(query, top_sentences[:4])
-                if answer:
-                    return answer
+                llm = QwenGenerator(self.config)
+                gen_res = llm.generate(query, top_sentences[:4])
+                if gen_res.get("answer"):
+                    return gen_res["answer"]
             except Exception:
                 pass
 
-            for s in top_sentences:
-                if " is " in s.lower():
-                    return s
-            return top_sentences[0]
-
-        if query_type == "procedural":
-            steps = [f"{i+1}. {self.processor.clean_text(s, 'preserve_lists')}" for i, s in enumerate(top_sentences)]
-            return "Here are the steps:\n" + "\n".join(steps)
-
-        if query_type == "comparison":
-            return "Comparison:\n" + "\n".join(f"- {s}" for s in top_sentences[:4])
-
-        if query_type == "general":
-            try:
-                llm = LLMGenerator()
-                answer = llm.generate(query, top_sentences[:4])
-                if answer:
-                    return answer
-            except Exception:
-                pass
-
-        # general fallback
+        # final fallback
         return create_natural_answer(top_sentences[:4], query)
 
 
