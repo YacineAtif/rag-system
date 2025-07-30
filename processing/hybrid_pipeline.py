@@ -11,6 +11,7 @@ from dataclasses import dataclass
 # Try to import config, handle gracefully if not available
 try:
     from backend.config import Config
+    from backend.qa_models import DeBERTaQA, QwenGenerator
 except ImportError:
     print("Backend config not available, using defaults")
     Config = None
@@ -50,6 +51,22 @@ class HybridPipeline:
         # Setup logging
         logging.basicConfig(level=logging.INFO)
         logger.info("HybridPipeline instance created")
+
+    def _is_factual(self, question: str) -> bool:
+        q = question.lower()
+        return q.startswith("what is") or q.startswith("define") or "definition" in q
+
+    def _route_models(self, question: str, contexts: List[str]) -> Dict[str, Any]:
+        if self._is_factual(question):
+            qa = DeBERTaQA(self.config)
+            res = qa.answer(question, contexts)
+            if res.get("confidence", 0) >= self.config.deberta.confidence_threshold and res.get("answer"):
+                res["model"] = "deberta"
+                return res
+        gen = QwenGenerator(self.config)
+        res = gen.generate(question, contexts)
+        res["model"] = "qwen"
+        return res
 
     def initialize(self) -> bool:
         """Initialize all available pipeline components."""
@@ -136,81 +153,43 @@ class HybridPipeline:
             )
 
     def _process_extractive_placeholder(self, question: str, contexts: List[str]) -> QueryResult:
-        """Placeholder for future DeBERTa extractive processing."""
+        """Extractive mode using DeBERTa with Qwen fallback."""
         logger.info("Using extractive placeholder mode")
 
-        if contexts:
-            question_words = set(question.lower().split())
-            best_context = ""
-            max_relevance = 0
-
-            for context in contexts:
-                context_words = set(context.lower().split())
-                relevance = len(question_words & context_words)
-                if relevance > max_relevance:
-                    max_relevance = relevance
-                    best_context = context
-
-            snippet = best_context[:250] + "..." if len(best_context) > 250 else best_context
-            confidence = min(0.8, max_relevance * 0.1)
-        else:
-            snippet = "No context provided for extraction"
-            confidence = 0.1
-
+        res = self._route_models(question, contexts)
         return QueryResult(
-            answer=f"[Extractive Mode - Placeholder] Based on relevant context:\n\n{snippet}\n\nThis is a placeholder response. Full DeBERTa V3 extractive QA integration will provide precise span-based answers.",
-            confidence=confidence,
-            processing_mode="extractive_placeholder",
-            sources=["context_analysis"] if contexts else [],
-            metadata={
-                "method": "keyword_matching_placeholder",
-                "relevance_score": max_relevance if contexts else 0,
-                "context_count": len(contexts),
-                "future_model": "microsoft/deberta-v3-base-squad2"
-            }
+            answer=res.get("answer", ""),
+            confidence=res.get("confidence", 0.0),
+            processing_mode="extractive",
+            sources=[f"context_{i}" for i in range(len(contexts))],
+            metadata={"model": res.get("model"), "model_confidence": res.get("confidence")}
         )
 
     def _process_generative_placeholder(self, question: str, contexts: List[str]) -> QueryResult:
-        """Placeholder for future Qwen generative processing."""
+        """Generative mode answered by Qwen."""
         logger.info("Using generative placeholder mode")
 
-        if contexts:
-            context_summary = " ".join(contexts)
-            context_summary = context_summary[:400] + "..." if len(context_summary) > 400 else context_summary
-        else:
-            context_summary = "No context provided"
-
+        res = self._route_models(question, contexts)
         return QueryResult(
-            answer=f"[Generative Mode - Placeholder] Question: {question}\n\nContext Summary: {context_summary}\n\nThis is a placeholder response. Full Qwen LLM integration will provide comprehensive, contextually-aware generated answers that can synthesize information across multiple sources.",
-            confidence=0.6,
-            processing_mode="generative_placeholder",
+            answer=res.get("answer", ""),
+            confidence=res.get("confidence", 0.0),
+            processing_mode="generative",
             sources=[f"context_{i}" for i in range(len(contexts))],
-            metadata={
-                "method": "template_placeholder",
-                "context_length": len(context_summary),
-                "question_length": len(question),
-                "future_model": "qwen-7b-chat"
-            }
+            metadata={"model": res.get("model"), "model_confidence": res.get("confidence")}
         )
 
     def _process_enhanced_placeholder(self, question: str, contexts: List[str]) -> QueryResult:
-        """Placeholder for enhanced processing (extractive + generative refinement)."""
+        """Enhanced processing combining extractive and generative."""
         logger.info("Using enhanced placeholder mode")
 
-        extractive_result = self._process_extractive_placeholder(question, contexts)
-
-        enhanced_answer = f"{extractive_result.answer}\n\n[Enhanced with Generative Refinement]\nThe extractive answer above would be enhanced and refined using Qwen's generative capabilities to provide more comprehensive, fluent, and contextually appropriate responses."
+        res = self._route_models(question, contexts)
 
         return QueryResult(
-            answer=enhanced_answer,
-            confidence=extractive_result.confidence,
-            processing_mode="enhanced_placeholder",
-            sources=extractive_result.sources,
-            metadata={
-                "method": "enhanced_placeholder",
-                "base_mode": "extractive",
-                "future_model": "qwen-7b-chat"
-            }
+            answer=res.get("answer", ""),
+            confidence=res.get("confidence", 0.0),
+            processing_mode="enhanced",
+            sources=[f"context_{i}" for i in range(len(contexts))],
+            metadata={"model": res.get("model"), "model_confidence": res.get("confidence")}
         )
 
     def _process_hybrid_auto_placeholder(self, question: str, contexts: List[str]) -> QueryResult:

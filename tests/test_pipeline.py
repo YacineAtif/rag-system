@@ -75,7 +75,7 @@ class TestHybridPipeline(unittest.TestCase):
         processor = TextProcessor()
         generator = AnswerGenerator(processor)
         sentences = ["AI is intelligence demonstrated by machines."]
-        with patch('backend.llm_generator.LLMGenerator.generate', return_value='A short answer.'):
+        with patch('backend.qa_models.QwenGenerator.generate', return_value={'answer': 'A short answer.', 'confidence': 0.9}):
             with patch.dict('os.environ', {'OPENAI_API_KEY': 'dummy'}):
                 answer = generator.generate('What is AI?', sentences, 'general', [])
         self.assertIsInstance(answer, str)
@@ -85,16 +85,18 @@ class TestHybridPipeline(unittest.TestCase):
         processor = TextProcessor()
         generator = AnswerGenerator(processor)
         sentences = ["Evidence Theory is a mathematical framework for reasoning with uncertainty."]
-        with patch('backend.llm_generator.LLMGenerator.generate', return_value='LLM definition reply.'):
-            with patch.dict('os.environ', {'OPENAI_API_KEY': 'dummy'}):
+        with patch('backend.qa_models.DeBERTaQA.answer', return_value={'answer': 'DE answer', 'confidence': 0.8}) as mock_deb:
+            with patch('backend.qa_models.QwenGenerator.generate', return_value={'answer': 'fallback', 'confidence': 0.5}) as mock_qwen:
                 answer = generator.generate('What is evidence theory?', sentences, 'definition', [])
-        self.assertEqual(answer, 'LLM definition reply.')
+        self.assertEqual(answer, 'DE answer')
+        mock_deb.assert_called_once()
+        mock_qwen.assert_not_called()
 
     def test_entity_relationship_query_uses_llm(self):
         processor = TextProcessor()
         generator = AnswerGenerator(processor)
         sentences = ["Alice and Bob collaborated on the project."]
-        with patch('backend.llm_generator.LLMGenerator.generate', return_value='Alice worked with Bob on the project.'):
+        with patch('backend.qa_models.QwenGenerator.generate', return_value={'answer': 'Alice worked with Bob on the project.', 'confidence': 0.8}):
             with patch.dict('os.environ', {'OPENAI_API_KEY': 'dummy'}):
                 answer = generator.generate('Who did Alice collaborate with?', sentences, 'entity', [])
         self.assertEqual(answer, 'Alice worked with Bob on the project.')
@@ -106,6 +108,13 @@ class TestHybridPipeline(unittest.TestCase):
         answer = generator.generate('Who was mentioned?', sentences, 'entity', [])
         self.assertIn('Entities mentioned:', answer)
         self.assertIn('Charlie', answer)
+
+    def test_query_result_metadata_model(self):
+        self.pipeline.initialize()
+        with patch('backend.qa_models.DeBERTaQA.answer', return_value={'answer': 'fact', 'confidence': 0.9}):
+            result = self.pipeline.process_query('What is AI?', ['AI context'], ProcessingMode.EXTRACTIVE_ONLY)
+        self.assertEqual(result.metadata.get('model'), 'deberta')
+        self.assertAlmostEqual(result.metadata.get('model_confidence'), 0.9)
 
 if __name__ == '__main__':
     unittest.main()
