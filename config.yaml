@@ -1,29 +1,29 @@
 # RAG System Configuration
 # Replaces hardcoded values from existing scripts
 
-# Document Processing
+# Document Processing (EXISTING - Preserved)
 documents_folder: "documents"
 chunk_size: 500
 chunk_overlap: 100
 development: true
 
-# Vector Store (from weaviate_rag_pipeline_transformers.py)
+# Vector Store (EXISTING - Preserved)
 weaviate:
   url: "http://localhost:8080"
   index_name: "rag_docs"
 
-# Embedding (from existing scripts)
+# Embedding (EXISTING - Preserved)
 embedding:
   model_name: "sentence-transformers/all-MiniLM-L6-v2"
 
-# Future DeBERTa Configuration
+# Future DeBERTa Configuration (EXISTING - Preserved)
 deberta:
   model_name: "microsoft/deberta-v3-base-squad2"
   max_length: 512
   confidence_threshold: 0.7
   max_answer_length: 256
 
-# Future Qwen Configuration
+# Future Qwen Configuration (EXISTING - Preserved)
 qwen:
   model_name: "qwen-7b-chat"
   api_url: ""
@@ -31,7 +31,141 @@ qwen:
   max_tokens: 1000
   temperature: 0.1
 
-# Hybrid Processing
+# Hybrid Processing (EXISTING - Preserved)
 hybrid:
   confidence_threshold: 0.75
   enable_qwen_fallback: true
+
+# NEW: Section Priority Mapping - Maps query types to document sections
+section_priorities:
+  # Partnership/Organization queries
+  partnership_queries:
+    keywords: ["partner", "collaborator", "organization", "company", "team", "consortium", "stakeholder", "member", "involved", "working"]
+    priority_sections: ["collaborators", "partners", "team", "organization", "consortium", "stakeholders", "project partners", "project team"]
+    boost_factor: 2.5  # Strong boost for partnership information
+  
+  # Technical/Architecture queries  
+  technical_queries:
+    keywords: ["architecture", "system", "design", "implementation", "framework", "module", "component", "structure"]
+    priority_sections: ["architecture", "system", "design", "technical", "implementation", "framework", "components", "modules"]
+    boost_factor: 1.8
+  
+  # Methodology queries
+  methodology_queries:
+    keywords: ["method", "approach", "process", "procedure", "algorithm", "technique", "strategy", "evidence theory"]
+    priority_sections: ["methodology", "methods", "approach", "process", "algorithm", "procedure", "theory", "evidence"]
+    boost_factor: 1.8
+
+  # Overview/Background queries
+  background_queries:
+    keywords: ["overview", "introduction", "background", "summary", "about", "what is", "describe", "foreword"]
+    priority_sections: ["overview", "introduction", "background", "summary", "foreword", "abstract", "project overview"]
+    boost_factor: 1.5
+
+# NEW: Semantic Metadata Patterns for better search
+semantic_metadata:
+  # Organization/Partnership patterns
+  organization_patterns:
+    - "**Project Partners**"
+    - "**Organizations involved**"
+    - "**Consortium members**"
+    - "**Stakeholders**"
+    - "**Team members**"
+    - "**Collaborating institutions**"
+    - "**Project Team Members**"
+    - "**Institutional partners**"
+  
+  # Technical patterns
+  technical_patterns:
+    - "**System Components**"
+    - "**Architecture**"
+    - "**Technical Terms**"
+    - "**Components**"
+    - "**Modules**"
+    - "**Framework**"
+  
+  # Process/Theory patterns
+  process_patterns:
+    - "**Methodology**"
+    - "**Evidence Theory**"
+    - "**Process**"
+    - "**Workflow**"
+    - "**Procedure**"
+    - "**Steps**"
+
+# NEW: Enhanced Chunk Processing
+chunk_processing:
+  # Add semantic markers based on document structure
+  add_section_markers: true
+  
+  # Enhance chunks with metadata context
+  add_metadata_context: true
+  
+  # Maximum context to add to each chunk
+  max_context_length: 100
+  
+  # Section header patterns to recognize
+  section_patterns:
+    - "^#{1,6}\\s+(.+)"  # Markdown headers (## Section Name)
+    - "^\\*\\*(.+)\\*\\*:?"  # Bold patterns (**Bold Text**)
+    - "^\\d+\\.\\s+(.+)"  # Numbered sections (1. Section)
+
+# NEW: Enhanced Query Processing
+query_processing:
+  # Expand queries with synonyms for better matching
+  expand_synonyms: true
+  
+  # Synonym mappings (domain-agnostic)
+  synonyms:
+    partnership: ["collaboration", "consortium", "team", "organization", "alliance", "collaborators", "partners"]
+    technical: ["system", "architecture", "framework", "implementation", "design", "components", "modules"]
+    process: ["methodology", "approach", "procedure", "workflow", "method", "theory"]
+    overview: ["summary", "introduction", "background", "description", "about", "foreword"]
+
+# NEW: Enhanced Retrieval Settings
+retrieval:
+  # Default number of chunks to retrieve
+  default_top_k: 5
+  
+  # Number of chunks for partnership queries (may need more context)
+  partnership_top_k: 7
+  
+  # Minimum similarity threshold
+  similarity_threshold: 0.3
+  
+  # Re-ranking based on section priority
+  enable_section_reranking: true
+  
+  # Boost factor for exact section name matches
+  section_name_boost: 3.0
+
+# NEW: Enhanced LLM Prompting
+prompting:
+  # Instruction to prioritize specific information types
+  context_instructions:
+    partnership: "Focus on specific organization names, roles, and contributions. Include all mentioned partners with their exact names and detailed responsibilities. List each organization clearly."
+    technical: "Provide detailed technical information with specific component names, architectural details, and system relationships."
+    methodology: "Explain the methodology, approach, or theoretical framework with specific details and terminology."
+    general: "Synthesize the information into coherent, natural language while preserving specific names, details, and factual accuracy."
+
+# NEW: Domain Detection (Optional - for future multi-domain systems)
+domain_detection:
+  enabled: false  # Can be enabled later for multi-domain support
+  
+  # Keywords that suggest specific domains
+  domain_keywords:
+    traffic_safety: ["traffic", "intersection", "driving", "vehicle", "road", "i2connect"]
+    healthcare: ["patient", "medical", "diagnosis", "treatment", "clinical"]
+    finance: ["investment", "portfolio", "risk", "capital", "financial"]
+    research: ["study", "analysis", "methodology", "findings", "research", "evidence"]
+
+# NEW: Logging and Debugging
+logging:
+  # Enable detailed retrieval logging
+  log_chunk_retrieval: true
+  
+  # Log section matching for debugging
+  log_section_matching: true
+  
+  # Log query classification
+  log_query_classification: true
