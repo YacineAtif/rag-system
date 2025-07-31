@@ -159,28 +159,6 @@ class QwenGenerator:
         return "cpu"
 
 
-    def generate(self, query: str, contexts: List[str]) -> Dict[str, Any]:
-        context = " ".join(contexts)
-
-        if self.available:
-            prompt = f"{query}\n\n{context}"
-            inputs = self.tokenizer(prompt, return_tensors="pt").to(self.device)
-            with torch.no_grad():
-                output = self.model.generate(
-                    **inputs,
-                    max_new_tokens=getattr(self.config.qwen, "max_new_tokens", 128),
-                    do_sample=getattr(self.config.qwen, "do_sample", False),
-                    temperature=getattr(self.config.qwen, "temperature", 0.7),
-                )
-            answer = self.tokenizer.decode(output[0][inputs["input_ids"].shape[1]:], skip_special_tokens=True).strip()
-            confidence = 0.6
-            return {"answer": answer, "confidence": confidence}
-
-        # Fallback to OpenAI-based LLMGenerator if local model unavailable
-        try:
-            llm = LLMGenerator()
-            answer = llm.generate(query, contexts)
-            return {"answer": answer, "confidence": 0.6}
 
     def generate(
         self,
@@ -189,11 +167,35 @@ class QwenGenerator:
         instruction: Optional[str] = None,
     ) -> Dict[str, Any]:
         """Generate an answer using the underlying LLM."""
+        context = " ".join(contexts)
+
+        if self.available:
+            prompt_parts = []
+            if instruction:
+                prompt_parts.append(instruction)
+            prompt_parts.append(query)
+            prompt_parts.append(context)
+            prompt = "\n\n".join(prompt_parts)
+            try:
+                inputs = self.tokenizer(prompt, return_tensors="pt").to(self.device)
+                with torch.no_grad():
+                    output = self.model.generate(
+                        **inputs,
+                        max_new_tokens=getattr(self.config.qwen, "max_new_tokens", 128),
+                        do_sample=getattr(self.config.qwen, "do_sample", False),
+                        temperature=getattr(self.config.qwen, "temperature", 0.7),
+                    )
+                answer = self.tokenizer.decode(
+                    output[0][inputs["input_ids"].shape[1]:], skip_special_tokens=True
+                ).strip()
+                return {"answer": answer, "confidence": 0.6}
+            except Exception:
+                pass
+
         try:
             llm = LLMGenerator()
             full_query = f"{instruction}\n\n{query}" if instruction else query
             answer = llm.generate(full_query, contexts)
-            confidence = 0.6
-
+            return {"answer": answer, "confidence": 0.6}
         except Exception:
             return {"answer": "", "confidence": 0.0}
