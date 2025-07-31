@@ -1,34 +1,31 @@
-import os
-import types
-import sys
-import importlib
-from unittest.mock import MagicMock
-import pytest
+from unittest.mock import patch
+from backend import qa_models
 
 
-def test_generate_with_openai_v1(monkeypatch):
-    fake_openai_module = types.SimpleNamespace()
-    class FakeResponse:
-        def __init__(self):
-            self.choices = [types.SimpleNamespace(message=types.SimpleNamespace(content="Hi"))]
-    fake_client = MagicMock()
-    fake_client.chat.completions.create.return_value = FakeResponse()
-    fake_openai_module.OpenAI = MagicMock(return_value=fake_client)
-    monkeypatch.setitem(sys.modules, 'openai', fake_openai_module)
-    import backend.llm_generator as llm
-    importlib.reload(llm)
-    monkeypatch.setenv("OPENAI_API_KEY", "key")
-    generator = llm.LLMGenerator()
-    result = generator.generate("q", ["c"])
-    assert result == "Hi"
-    fake_openai_module.OpenAI.assert_called_once_with(api_key="key")
-    fake_client.chat.completions.create.assert_called_once()
+def test_qwen_generator_success():
+    with patch('backend.qa_models.LLMGenerator.generate', return_value='hello') as mock_llm:
+        gen = qa_models.QwenGenerator()
+        result = gen.generate('q', ['ctx'])
+    assert result == {'answer': 'hello', 'confidence': 0.6}
+    mock_llm.assert_called_once_with('q', ['ctx'])
 
-def test_generate_no_api_key(monkeypatch):
-    fake_openai_module = types.SimpleNamespace(OpenAI=MagicMock())
-    monkeypatch.setitem(sys.modules, 'openai', fake_openai_module)
-    import backend.llm_generator as llm
-    importlib.reload(llm)
-    generator = llm.LLMGenerator()
-    with pytest.raises(ValueError):
-        generator.generate("q", ["c"])
+
+def test_qwen_generator_failure():
+    with patch('backend.qa_models.LLMGenerator.generate', side_effect=RuntimeError):
+        gen = qa_models.QwenGenerator()
+        result = gen.generate('q', ['ctx'])
+    assert result == {'answer': '', 'confidence': 0.0}
+
+
+def test_deberta_answer_selects_best_context():
+    de = qa_models.DeBERTaQA()
+    result = de.answer('Who is Alice', ['Bob went home', 'Alice went home'])
+    assert result['answer'] == 'Alice went home'
+    # q_words = {"who","is","alice"}; best_score = 1; len(q_words)=3 => conf=1/3
+    assert abs(result['confidence'] - (1/3)) < 0.0001
+
+
+def test_deberta_no_contexts():
+    de = qa_models.DeBERTaQA()
+    result = de.answer('Any', [])
+    assert result == {'answer': '', 'confidence': 0.0}
