@@ -1,3 +1,4 @@
+
 """Model wrappers for extractive and generative QA."""
 
 from typing import List, Dict, Any
@@ -11,6 +12,9 @@ from transformers import (
     AutoTokenizer,
     AutoModelForCausalLM,
 )
+
+
+from typing import List, Dict, Any, Optional
 
 from .llm_generator import LLMGenerator
 from .config import Config
@@ -154,6 +158,7 @@ class QwenGenerator:
             return "cuda" if torch.cuda.is_available() else "cpu"
         return "cpu"
 
+
     def generate(self, query: str, contexts: List[str]) -> Dict[str, Any]:
         context = " ".join(contexts)
 
@@ -176,5 +181,19 @@ class QwenGenerator:
             llm = LLMGenerator()
             answer = llm.generate(query, contexts)
             return {"answer": answer, "confidence": 0.6}
+
+    def generate(
+        self,
+        query: str,
+        contexts: List[str],
+        instruction: Optional[str] = None,
+    ) -> Dict[str, Any]:
+        """Generate an answer using the underlying LLM."""
+        try:
+            llm = LLMGenerator()
+            full_query = f"{instruction}\n\n{query}" if instruction else query
+            answer = llm.generate(full_query, contexts)
+            confidence = 0.6
+
         except Exception:
             return {"answer": "", "confidence": 0.0}
