@@ -474,7 +474,7 @@ def boost_documents(documents: List[Document], query_type: str) -> List[Document
 
     for doc in documents:
         score = doc.score or 0.0
-        section = (doc.meta or {}).get("section_name", "").lower()
+        section = ((doc.meta or {}).get("section_name") or "").lower()
         if section:
             score *= base_boost
             if section in priority_sections:
