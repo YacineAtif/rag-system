@@ -56,17 +56,76 @@ class HybridPipeline:
         q = question.lower()
         return q.startswith("what is") or q.startswith("define") or "definition" in q
 
+    def _is_partnership(self, question: str) -> bool:
+        q = question.lower()
+        keywords = [
+            "partner",
+            "collaborator",
+            "organization",
+            "company",
+            "team",
+            "consortium",
+            "stakeholder",
+            "member",
+            "involved",
+            "working",
+        ]
+        return any(k in q for k in keywords)
+
     def _route_models(self, question: str, contexts: List[str]) -> Dict[str, Any]:
+
         if self._is_factual(question):
+            qa_contexts = contexts[: self.config.retrieval.deberta_max_context]
             qa = DeBERTaQA(self.config)
-            res = qa.answer(question, contexts)
+            res = qa.answer(question, qa_contexts)
             if res.get("confidence", 0) >= self.config.deberta.confidence_threshold and res.get("answer"):
                 res["model"] = "deberta"
                 return res
+        gen_contexts = contexts[: self.config.retrieval.qwen_max_context]
         gen = QwenGenerator(self.config)
-        res = gen.generate(question, contexts)
+        res = gen.generate(question, gen_contexts)
         res["model"] = "qwen"
         return res
+
+        mm = getattr(self.config, "multi_model", None)
+        model_lists = mm.model_selection if mm else {}
+
+        if self._is_partnership(question):
+            order = model_lists.get("partnership_queries", ["qwen"])
+        elif self._is_factual(question):
+            order = model_lists.get("factual_queries", ["deberta", "qwen"])
+        else:
+            order = model_lists.get("general_queries", ["qwen"])
+
+        thresholds = mm.confidence_thresholds if mm else {}
+        deberta_min = thresholds.get("deberta_minimum", self.config.deberta.confidence_threshold)
+        qwen_min = thresholds.get("qwen_minimum", 0.0)
+
+        last_result: Dict[str, Any] = {"answer": "", "confidence": 0.0, "model": None}
+        for model_name in order:
+            if model_name == "deberta":
+                qa = DeBERTaQA(self.config)
+                res = qa.answer(question, contexts)
+                res["model"] = "deberta"
+                last_result = res
+                if res.get("confidence", 0) >= deberta_min and res.get("answer"):
+                    return res
+            elif model_name == "qwen":
+                instruction = None
+                if self._is_partnership(question):
+                    try:
+                        instruction = self.config.prompting["context_instructions"]["partnership"]
+                    except Exception:
+                        instruction = None
+                gen = QwenGenerator(self.config)
+                res = gen.generate(question, contexts, instruction=instruction)
+                res["model"] = "qwen"
+                last_result = res
+                if res.get("confidence", 0) >= qwen_min:
+                    return res
+
+        return last_result
+
 
     def initialize(self) -> bool:
         """Initialize all available pipeline components."""
