@@ -3,7 +3,7 @@ Configuration management for the modular RAG system.
 Centralizes settings and replaces hardcoded values from existing scripts.
 """
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Optional, List
 import os
 from pathlib import Path
@@ -44,6 +44,7 @@ class QwenConfig:
 class HybridConfig:
     confidence_threshold: float = 0.75
     enable_qwen_fallback: bool = True
+
 
 @dataclass
 class OpenAIConfig:
@@ -154,6 +155,18 @@ class SectionPrioritiesConfig:
     def __post_init__(self):
         if self.queries is None:
             self.queries = {}
+=======
+
+@dataclass
+class MultiModelConfig:
+    """Configuration for multi-model selection and thresholds."""
+
+    enabled: bool = True
+    model_selection: dict = field(default_factory=dict)
+    confidence_thresholds: dict = field(default_factory=dict)
+    primary_llm: str = "qwen"
+    qa_model: str = "deberta"
+
 
 class Config:
     """Central configuration management with YAML and environment support."""
@@ -171,6 +184,7 @@ class Config:
         self.deberta = DeBERTaConfig()
         self.qwen = QwenConfig()
         self.hybrid = HybridConfig()
+
         self.openai = OpenAIConfig()
         self.retrieval = RetrievalConfig()
         self.prompting = PromptingConfig()
@@ -182,6 +196,9 @@ class Config:
         self.multi_model = MultiModelConfig()
         self.section_priorities = SectionPrioritiesConfig()
         self.semantic_metadata = {}
+
+        self.multi_model = MultiModelConfig()
+
 
         # Store config path
         self.config_path = config_path
@@ -214,6 +231,7 @@ class Config:
                 'deberta': self.deberta,
                 'qwen': self.qwen,
                 'hybrid': self.hybrid,
+
                 'openai': self.openai,
                 'retrieval': self.retrieval,
                 'prompting': self.prompting,
@@ -223,6 +241,9 @@ class Config:
                 'domain_detection': self.domain_detection,
                 'logging': self.logging,
                 'multi_model': self.multi_model
+
+                'multi_model': self.multi_model,
+
             }
 
             for config_name, config_obj in config_mappings.items():
