@@ -34,6 +34,14 @@ class TestConfig(unittest.TestCase):
         self.assertIsInstance(config.chunk_size, int)
         self.assertGreater(config.chunk_size, 0)
 
+        # New sub-configs
+        self.assertTrue(hasattr(config, 'retrieval'))
+        self.assertTrue(hasattr(config.retrieval, 'default_top_k'))
+        self.assertTrue(hasattr(config, 'hardware'))
+
+        self.assertIsInstance(config.retrieval.default_top_k, int)
+        self.assertIsInstance(config.hardware.use_gpu, bool)
+
     def test_validation(self):
         """Test configuration validation."""
         config = Config("nonexistent.yaml")
