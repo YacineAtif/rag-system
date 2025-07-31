@@ -3,10 +3,20 @@ import re
 import time
 import requests
 from pathlib import Path
-from typing import List, Dict, Optional
+from typing import List, Dict, Optional, Tuple
 from backend.config import Config
 from backend.qa_models import DeBERTaQA, QwenGenerator
 import subprocess
+
+try:
+    import yaml
+except Exception:
+    yaml = None
+
+CONFIG = {}
+if yaml and Path("config.yaml").exists():
+    with open("config.yaml", "r") as f:
+        CONFIG = yaml.safe_load(f) or {}
 
 # Haystack v2 imports
 from haystack import Document, Pipeline
@@ -74,8 +84,41 @@ def chunk_text(text: str, chunk_size: int = 500, overlap: int = 100) -> List[str
     
     if current_chunk:
         chunks.append(" ".join(current_chunk))
-    
+
     return chunks
+
+
+def split_into_sections(text: str, patterns: List[str]) -> List[Tuple[str, str]]:
+    """Split text into (section_name, text) using heading patterns."""
+    if not patterns:
+        return [("unknown", text)]
+
+    lines = text.splitlines()
+    sections: List[Tuple[str, List[str]]] = []
+    current_name = "unknown"
+    buffer: List[str] = []
+
+    compiled = [re.compile(p) for p in patterns]
+
+    for line in lines:
+        matched = False
+        stripped = line.strip()
+        for pat in compiled:
+            m = pat.match(stripped)
+            if m:
+                if buffer:
+                    sections.append((current_name, buffer))
+                    buffer = []
+                current_name = m.group(1).strip().lower()
+                matched = True
+                break
+        if not matched:
+            buffer.append(line)
+
+    if buffer:
+        sections.append((current_name, buffer))
+
+    return [(name, "\n".join(lines).strip()) for name, lines in sections]
 
 def load_documents_from_folder(folder_path: str) -> List[Document]:
     documents = []
@@ -94,18 +137,20 @@ def load_documents_from_folder(folder_path: str) -> List[Document]:
         '.docx': load_docx_file,
     }
     
+    patterns = CONFIG.get("chunk_processing", {}).get("section_patterns", [])
+
     for file_path in folder.rglob('*'):
         if file_path.is_file() and file_path.suffix.lower() in supported_extensions:
             print(f"📄 Processing: {file_path.name}")
-            
+
             try:
                 loader_func = supported_extensions[file_path.suffix.lower()]
                 content = loader_func(str(file_path))
-                
+
                 if not content.strip():
                     print(f"⚠️  Empty content in {file_path.name}")
                     continue
-                
+
                 file_stats = file_path.stat()
                 base_metadata = {
                     "filename": file_path.name,
@@ -114,19 +159,26 @@ def load_documents_from_folder(folder_path: str) -> List[Document]:
                     "file_size": file_stats.st_size,
                     "modified_date": time.ctime(file_stats.st_mtime)
                 }
-                
-                chunks = chunk_text(content, chunk_size=500, overlap=100)
-                print(f"   Split into {len(chunks)} chunks")
-                
-                for i, chunk in enumerate(chunks):
+
+                sections = split_into_sections(content, patterns)
+                chunk_pairs = []
+                for section_name, section_text in sections:
+                    chs = chunk_text(section_text, chunk_size=500, overlap=100)
+                    for ch in chs:
+                        chunk_pairs.append((section_name, ch))
+
+                print(f"   Split into {len(chunk_pairs)} chunks")
+
+                for i, (sec_name, chunk) in enumerate(chunk_pairs):
                     chunk_metadata = base_metadata.copy()
                     chunk_metadata.update({
                         "chunk_id": i,
-                        "total_chunks": len(chunks),
-                        "content_type": "chunk"
+                        "total_chunks": len(chunk_pairs),
+                        "content_type": "chunk",
+                        "section_name": sec_name
                     })
                     documents.append(Document(content=chunk, meta=chunk_metadata))
-                    
+
             except Exception as e:
                 print(f"❌ Error processing {file_path.name}: {e}")
                 continue
@@ -136,10 +188,18 @@ def load_documents_from_folder(folder_path: str) -> List[Document]:
 
 # --- Text Cleaning from simple_qa.py ---
 class QueryClassifier:
-    """Simple heuristic-based query classifier."""
+    """Simple heuristic-based query classifier with config support."""
+
+    def __init__(self, config: Optional[dict] = None):
+        self.config = config or CONFIG
+        pri = self.config.get("section_priorities", {}).get("partnership_queries", {})
+        self.partnership_keywords = [kw.lower() for kw in pri.get("keywords", [])]
 
     def classify(self, query: str) -> str:
         q = query.lower().strip()
+
+        if any(word in q for word in self.partnership_keywords):
+            return "partnership"
 
         entity_keywords = [
             "who",
@@ -402,6 +462,28 @@ def create_natural_answer(sentences, query):
         para2 = " ".join(sentences[1:3])  # Limit to avoid too long answers
         return f"{prefix}{para1} Additionally, {para2}"
 
+
+def boost_documents(documents: List[Document], query_type: str) -> List[Document]:
+    """Apply section-based score boosts to retrieved documents."""
+    retrieval_cfg = CONFIG.get("retrieval", {})
+    base_boost = retrieval_cfg.get("section_name_boost", 1.0)
+
+    priority_cfg = CONFIG.get("section_priorities", {}).get(f"{query_type}_queries", {})
+    priority_sections = [s.lower() for s in priority_cfg.get("priority_sections", [])]
+    section_factor = priority_cfg.get("boost_factor", 1.0)
+
+    for doc in documents:
+        score = doc.score or 0.0
+        section = (doc.meta or {}).get("section_name", "").lower()
+        if section:
+            score *= base_boost
+            if section in priority_sections:
+                score *= section_factor
+        doc.score = score
+
+    documents.sort(key=lambda d: d.score or 0.0, reverse=True)
+    return documents
+
 # --- Main Pipeline ---
 def wait_for_weaviate(url="http://localhost:8080", max_retries=30):
     for i in range(max_retries):
@@ -515,7 +597,7 @@ def main():
     print("Ask any question about your documents. Type 'quit' to exit.")
     
     conversation_history = []
-    classifier = QueryClassifier()
+    classifier = QueryClassifier(CONFIG)
     processor = TextProcessor()
     generator = AnswerGenerator(processor)
 
@@ -525,14 +607,17 @@ def main():
         "procedural": "preserve_lists",
         "comparison": "balanced",
         "general": "balanced",
+        "partnership": "preserve_structure",
     }
 
+    retrieval_cfg = CONFIG.get("retrieval", {})
     topk_map = {
-        "entity": 8,
-        "definition": 3,
-        "procedural": 5,
-        "comparison": 5,
-        "general": 5,
+        "entity": retrieval_cfg.get("default_top_k", 5),
+        "definition": retrieval_cfg.get("factual_top_k", retrieval_cfg.get("default_top_k", 5)),
+        "procedural": retrieval_cfg.get("default_top_k", 5),
+        "comparison": retrieval_cfg.get("default_top_k", 5),
+        "general": retrieval_cfg.get("default_top_k", 5),
+        "partnership": retrieval_cfg.get("partnership_top_k", retrieval_cfg.get("default_top_k", 5)),
     }
 
     while True:
@@ -562,9 +647,10 @@ def main():
                     "retriever": {"top_k": top_k}
                 }
             )
-            
+
             # Process results
             documents = result["retriever"]["documents"]
+            documents = boost_documents(documents, query_type)
             sentences = []
             sources = set()
 
