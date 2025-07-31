@@ -3,7 +3,7 @@ Configuration management for the modular RAG system.
 Centralizes settings and replaces hardcoded values from existing scripts.
 """
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Optional, List
 import os
 from pathlib import Path
@@ -45,6 +45,17 @@ class HybridConfig:
     confidence_threshold: float = 0.75
     enable_qwen_fallback: bool = True
 
+
+@dataclass
+class MultiModelConfig:
+    """Configuration for multi-model selection and thresholds."""
+
+    enabled: bool = True
+    model_selection: dict = field(default_factory=dict)
+    confidence_thresholds: dict = field(default_factory=dict)
+    primary_llm: str = "qwen"
+    qa_model: str = "deberta"
+
 class Config:
     """Central configuration management with YAML and environment support."""
 
@@ -61,6 +72,7 @@ class Config:
         self.deberta = DeBERTaConfig()
         self.qwen = QwenConfig()
         self.hybrid = HybridConfig()
+        self.multi_model = MultiModelConfig()
 
         # Store config path
         self.config_path = config_path
@@ -92,7 +104,8 @@ class Config:
                 'embedding': self.embedding,
                 'deberta': self.deberta,
                 'qwen': self.qwen,
-                'hybrid': self.hybrid
+                'hybrid': self.hybrid,
+                'multi_model': self.multi_model,
             }
 
             for config_name, config_obj in config_mappings.items():

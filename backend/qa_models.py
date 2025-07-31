@@ -1,4 +1,4 @@
-from typing import List, Dict, Any
+from typing import List, Dict, Any, Optional
 from .llm_generator import LLMGenerator
 
 class DeBERTaQA:
@@ -31,10 +31,17 @@ class QwenGenerator:
     def __init__(self, config=None):
         self.config = config
 
-    def generate(self, query: str, contexts: List[str]) -> Dict[str, Any]:
+    def generate(
+        self,
+        query: str,
+        contexts: List[str],
+        instruction: Optional[str] = None,
+    ) -> Dict[str, Any]:
+        """Generate an answer using the underlying LLM."""
         try:
             llm = LLMGenerator()
-            answer = llm.generate(query, contexts)
+            full_query = f"{instruction}\n\n{query}" if instruction else query
+            answer = llm.generate(full_query, contexts)
             confidence = 0.6
         except Exception:
             answer = ""
