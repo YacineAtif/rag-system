@@ -73,6 +73,20 @@ class HybridPipeline:
         return any(k in q for k in keywords)
 
     def _route_models(self, question: str, contexts: List[str]) -> Dict[str, Any]:
+
+        if self._is_factual(question):
+            qa_contexts = contexts[: self.config.retrieval.deberta_max_context]
+            qa = DeBERTaQA(self.config)
+            res = qa.answer(question, qa_contexts)
+            if res.get("confidence", 0) >= self.config.deberta.confidence_threshold and res.get("answer"):
+                res["model"] = "deberta"
+                return res
+        gen_contexts = contexts[: self.config.retrieval.qwen_max_context]
+        gen = QwenGenerator(self.config)
+        res = gen.generate(question, gen_contexts)
+        res["model"] = "qwen"
+        return res
+
         mm = getattr(self.config, "multi_model", None)
         model_lists = mm.model_selection if mm else {}
 
@@ -111,6 +125,7 @@ class HybridPipeline:
                     return res
 
         return last_result
+
 
     def initialize(self) -> bool:
         """Initialize all available pipeline components."""

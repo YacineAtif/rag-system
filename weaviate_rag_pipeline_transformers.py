@@ -8,15 +8,7 @@ from backend.config import Config
 from backend.qa_models import DeBERTaQA, QwenGenerator
 import subprocess
 
-try:
-    import yaml
-except Exception:
-    yaml = None
-
-CONFIG = {}
-if yaml and Path("config.yaml").exists():
-    with open("config.yaml", "r") as f:
-        CONFIG = yaml.safe_load(f) or {}
+CONFIG = Config()
 
 # Haystack v2 imports
 from haystack import Document, Pipeline
@@ -137,7 +129,7 @@ def load_documents_from_folder(folder_path: str) -> List[Document]:
         '.docx': load_docx_file,
     }
     
-    patterns = CONFIG.get("chunk_processing", {}).get("section_patterns", [])
+    patterns = CONFIG.chunk_processing.section_patterns
 
     for file_path in folder.rglob('*'):
         if file_path.is_file() and file_path.suffix.lower() in supported_extensions:
@@ -190,9 +182,9 @@ def load_documents_from_folder(folder_path: str) -> List[Document]:
 class QueryClassifier:
     """Simple heuristic-based query classifier with config support."""
 
-    def __init__(self, config: Optional[dict] = None):
+    def __init__(self, config: Optional[Config] = None):
         self.config = config or CONFIG
-        pri = self.config.get("section_priorities", {}).get("partnership_queries", {})
+        pri = self.config.section_priorities.queries.get("partnership_queries", {})
         self.partnership_keywords = [kw.lower() for kw in pri.get("keywords", [])]
 
     def classify(self, query: str) -> str:
@@ -465,10 +457,10 @@ def create_natural_answer(sentences, query):
 
 def boost_documents(documents: List[Document], query_type: str) -> List[Document]:
     """Apply section-based score boosts to retrieved documents."""
-    retrieval_cfg = CONFIG.get("retrieval", {})
-    base_boost = retrieval_cfg.get("section_name_boost", 1.0)
+    retrieval_cfg = CONFIG.retrieval
+    base_boost = retrieval_cfg.section_name_boost
 
-    priority_cfg = CONFIG.get("section_priorities", {}).get(f"{query_type}_queries", {})
+    priority_cfg = CONFIG.section_priorities.queries.get(f"{query_type}_queries", {})
     priority_sections = [s.lower() for s in priority_cfg.get("priority_sections", [])]
     section_factor = priority_cfg.get("boost_factor", 1.0)
 
@@ -610,14 +602,14 @@ def main():
         "partnership": "preserve_structure",
     }
 
-    retrieval_cfg = CONFIG.get("retrieval", {})
+    retrieval_cfg = CONFIG.retrieval
     topk_map = {
-        "entity": retrieval_cfg.get("default_top_k", 5),
-        "definition": retrieval_cfg.get("factual_top_k", retrieval_cfg.get("default_top_k", 5)),
-        "procedural": retrieval_cfg.get("default_top_k", 5),
-        "comparison": retrieval_cfg.get("default_top_k", 5),
-        "general": retrieval_cfg.get("default_top_k", 5),
-        "partnership": retrieval_cfg.get("partnership_top_k", retrieval_cfg.get("default_top_k", 5)),
+        "entity": retrieval_cfg.default_top_k,
+        "definition": retrieval_cfg.factual_top_k or retrieval_cfg.default_top_k,
+        "procedural": retrieval_cfg.default_top_k,
+        "comparison": retrieval_cfg.default_top_k,
+        "general": retrieval_cfg.default_top_k,
+        "partnership": retrieval_cfg.partnership_top_k or retrieval_cfg.default_top_k,
     }
 
     while True:
