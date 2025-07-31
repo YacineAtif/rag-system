@@ -9,7 +9,17 @@ import time
 import requests
 import numpy as np
 from pathlib import Path
-from typing import List, Dict, Any
+from typing import List, Dict, Any, Tuple
+
+try:
+    import yaml
+except Exception:
+    yaml = None
+
+CONFIG = {}
+if yaml and Path("config.yaml").exists():
+    with open("config.yaml", "r") as f:
+        CONFIG = yaml.safe_load(f) or {}
 from haystack import Document, Pipeline
 from haystack.components.writers import DocumentWriter
 from haystack.components.embedders import SentenceTransformersDocumentEmbedder
@@ -79,8 +89,41 @@ def chunk_text(text: str, chunk_size: int = 800, overlap: int = 150) -> List[str
     
     if current_chunk:
         chunks.append(" ".join(current_chunk))
-    
+
     return chunks
+
+
+def split_into_sections(text: str, patterns: List[str]) -> List[Tuple[str, str]]:
+    """Split text into (section_name, text) using heading patterns."""
+    if not patterns:
+        return [("unknown", text)]
+
+    lines = text.splitlines()
+    sections: List[Tuple[str, List[str]]] = []
+    current_name = "unknown"
+    buffer: List[str] = []
+
+    compiled = [re.compile(p) for p in patterns]
+
+    for line in lines:
+        matched = False
+        stripped = line.strip()
+        for pat in compiled:
+            m = pat.match(stripped)
+            if m:
+                if buffer:
+                    sections.append((current_name, buffer))
+                    buffer = []
+                current_name = m.group(1).strip().lower()
+                matched = True
+                break
+        if not matched:
+            buffer.append(line)
+
+    if buffer:
+        sections.append((current_name, buffer))
+
+    return [(name, "\n".join(lines).strip()) for name, lines in sections]
 
 def load_documents_from_folder(folder_path: str) -> List[Document]:
     """Load all supported documents from a folder"""
@@ -100,18 +143,20 @@ def load_documents_from_folder(folder_path: str) -> List[Document]:
         '.docx': load_docx_file,
     }
     
+    patterns = CONFIG.get("chunk_processing", {}).get("section_patterns", [])
+
     for file_path in folder.rglob('*'):
         if file_path.is_file() and file_path.suffix.lower() in supported_extensions:
             print(f"📄 Processing: {file_path.name}")
-            
+
             try:
                 loader_func = supported_extensions[file_path.suffix.lower()]
                 content = loader_func(str(file_path))
-                
+
                 if not content.strip():
                     print(f"⚠️  Empty content in {file_path.name}")
                     continue
-                
+
                 file_stats = file_path.stat()
                 base_metadata = {
                     "filename": file_path.name,
@@ -120,24 +165,27 @@ def load_documents_from_folder(folder_path: str) -> List[Document]:
                     "file_size": file_stats.st_size,
                     "modified_date": time.ctime(file_stats.st_mtime)
                 }
-                
-                # Always chunk documents for consistency
-                chunks = chunk_text(content, chunk_size=800, overlap=150)
-                print(f"   Split into {len(chunks)} chunks")
-                
-                for i, chunk in enumerate(chunks):
+
+                sections = split_into_sections(content, patterns)
+                chunk_pairs = []
+                for section_name, section_text in sections:
+                    chs = chunk_text(section_text, chunk_size=800, overlap=150)
+                    for ch in chs:
+                        chunk_pairs.append((section_name, ch))
+
+                print(f"   Split into {len(chunk_pairs)} chunks")
+
+                for i, (sec_name, chunk) in enumerate(chunk_pairs):
                     chunk_metadata = base_metadata.copy()
                     chunk_metadata.update({
                         "chunk_id": i,
-                        "total_chunks": len(chunks),
-                        "content_type": "chunk"
+                        "total_chunks": len(chunk_pairs),
+                        "content_type": "chunk",
+                        "section_name": sec_name
                     })
-                    
-                    documents.append(Document(
-                        content=chunk,
-                        meta=chunk_metadata
-                    ))
-                
+
+                    documents.append(Document(content=chunk, meta=chunk_metadata))
+
             except Exception as e:
                 print(f"❌ Error processing {file_path.name}: {e}")
                 continue
