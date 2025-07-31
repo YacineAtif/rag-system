@@ -26,6 +26,23 @@ class DummyQwenModel:
     def to(self, device):
         pass
 
+
+def test_deberta_no_contexts():
+    de = qa_models.DeBERTaQA()
+    result = de.answer('Any', [])
+    assert result == {'answer': '', 'confidence': 0.0}
+
+
+def test_llm_generator_requires_api_key():
+    with patch.dict('os.environ', {}, clear=True):
+        gen = qa_models.LLMGenerator()
+        try:
+            gen.generate('q', ['ctx'])
+        except ValueError as e:
+            assert 'OPENAI_API_KEY' in str(e)
+        else:
+            assert False, 'ValueError not raised'
+
     def generate(self, **kwargs):
         return kwargs["input_ids"]
 
@@ -55,3 +72,4 @@ def test_deberta_fallback_no_model():
         res = de.answer("who", ["Alice went home"])
     assert res["answer"] == "Alice went home"
     assert res["confidence"] > 0
+

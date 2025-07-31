@@ -14,7 +14,8 @@ class TestIntegration(unittest.TestCase):
     def test_config_integration(self):
         try:
             from backend.config import Config
-            config = Config()
+            config = Config('config.yaml')
+            self.assertIn('Qwen', config.qwen.model_name)
             try:
                 from backend.health_check import HealthChecker
                 health_checker = HealthChecker(config)
@@ -58,6 +59,29 @@ class TestIntegration(unittest.TestCase):
             print("Integration possible")
         else:
             print("Limited integration")
+
+    def test_partnership_query_names(self):
+        try:
+            from weaviate_rag_pipeline_transformers import (
+                QueryClassifier,
+                TextProcessor,
+                AnswerGenerator,
+            )
+        except ImportError:
+            self.skipTest("RAG pipeline modules unavailable")
+
+        classifier = QueryClassifier()
+        query = "Which organizations are involved in the project?"
+        q_type = classifier.classify(query)
+        self.assertEqual(q_type, "partnership")
+
+        sentences = [
+            "The project partners include University of Skövde, Scania, Smart Eye and Viscando."
+        ]
+        processor = TextProcessor()
+        generator = AnswerGenerator(processor)
+        answer = generator.generate(query, sentences, "entity", [])
+        self.assertIn("Scania", answer)
 
 if __name__ == '__main__':
     unittest.main()
