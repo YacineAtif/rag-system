@@ -1,7 +1,7 @@
 
 """Model wrappers for extractive and generative QA."""
 
-from typing import List, Dict, Any
+from typing import List, Dict, Any, Optional, Union
 
 try:  # Optional torch dependency
     import torch
@@ -13,16 +13,13 @@ from transformers import (
     AutoModelForCausalLM,
 )
 
-
-from typing import List, Dict, Any, Optional
-
 from .llm_generator import LLMGenerator
 from .config import Config
 
 class DeBERTaQA:
     """Extractive QA using a DeBERTa model from HuggingFace."""
 
-    def __init__(self, config: Config | None = None) -> None:
+    def __init__(self, config: Optional[Config] = None) -> None:
         self.config = config or Config()
         if torch is None:
             self.available = False
@@ -115,7 +112,7 @@ class DeBERTaQA:
 class QwenGenerator:
     """Generative model wrapper for the Qwen LLM."""
 
-    def __init__(self, config: Config | None = None) -> None:
+    def __init__(self, config: Optional[Config] = None) -> None:
         self.config = config or Config()
         if torch is None:
             self.available = False
