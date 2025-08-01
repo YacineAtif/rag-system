@@ -101,7 +101,8 @@ class TestHybridPipeline(unittest.TestCase):
         self.pipeline.initialize()
         question = "What is AI?"
         contexts = []
-        result = self.pipeline.process_query(question, contexts)
+        with patch('backend.qa_models.ClaudeQA.generate', return_value={'answer': '', 'confidence': 0.0}):
+            result = self.pipeline.process_query(question, contexts)
         self.assertTrue(hasattr(result, 'answer'))
         self.assertEqual(result.answer, '')
 
@@ -123,8 +124,8 @@ class TestHybridPipeline(unittest.TestCase):
         processor = TextProcessor()
         generator = AnswerGenerator(processor)
         sentences = ["AI is intelligence demonstrated by machines."]
-        with patch('backend.qa_models.QwenGenerator.generate', return_value={'answer': 'A short answer.', 'confidence': 0.9}):
-            with patch.dict('os.environ', {'OPENAI_API_KEY': 'dummy'}):
+        with patch('backend.qa_models.ClaudeQA.generate', return_value={'answer': 'A short answer.', 'confidence': 0.9}):
+            with patch.dict('os.environ', {'ANTHROPIC_API_KEY': 'dummy'}):
                 answer = generator.generate('What is AI?', sentences, 'general', [])
         self.assertIsInstance(answer, str)
         self.assertTrue(len(answer) > 0)
@@ -133,35 +134,26 @@ class TestHybridPipeline(unittest.TestCase):
         processor = TextProcessor()
         generator = AnswerGenerator(processor)
         sentences = ["Evidence Theory is a mathematical framework for reasoning with uncertainty."]
-        with patch('backend.qa_models.DeBERTaQA.answer', return_value={'answer': 'DE answer', 'confidence': 0.8}) as mock_deb:
-            with patch('backend.qa_models.QwenGenerator.generate', return_value={'answer': 'fallback', 'confidence': 0.5}) as mock_qwen:
-                answer = generator.generate('What is evidence theory?', sentences, 'definition', [])
+        with patch('backend.qa_models.ClaudeQA.generate', return_value={'answer': 'DE answer', 'confidence': 0.8}) as mock_claude:
+            answer = generator.generate('What is evidence theory?', sentences, 'definition', [])
         self.assertEqual(answer, 'DE answer')
-        mock_deb.assert_called_once()
-        mock_qwen.assert_not_called()
+        mock_claude.assert_called()
 
     def test_entity_relationship_query_uses_llm(self):
         processor = TextProcessor()
         generator = AnswerGenerator(processor)
         sentences = ["Alice and Bob collaborated on the project."]
-        with patch('backend.qa_models.QwenGenerator.generate', return_value={'answer': 'Alice worked with Bob on the project.', 'confidence': 0.8}):
-            with patch.dict('os.environ', {'OPENAI_API_KEY': 'dummy'}):
+        with patch('backend.qa_models.ClaudeQA.generate', return_value={'answer': 'Alice worked with Bob on the project.', 'confidence': 0.8}):
+            with patch.dict('os.environ', {'ANTHROPIC_API_KEY': 'dummy'}):
                 answer = generator.generate('Who was Alice\'s collaborator?', sentences, 'entity', [])
         self.assertEqual(answer, 'Alice worked with Bob on the project.')
 
-    def test_entity_list_fallback(self):
-        processor = TextProcessor()
-        generator = AnswerGenerator(processor)
-        sentences = ["Charlie, Dana and Erin attended the meeting."]
-        answer = generator.generate('Who was mentioned?', sentences, 'entity', [])
-        self.assertIn('Entities mentioned:', answer)
-        self.assertIn('Charlie', answer)
 
     def test_query_result_metadata_model(self):
         self.pipeline.initialize()
-        with patch('backend.qa_models.DeBERTaQA.answer', return_value={'answer': 'fact', 'confidence': 0.9}):
+        with patch('backend.qa_models.ClaudeQA.generate', return_value={'answer': 'fact', 'confidence': 0.9}):
             result = self.pipeline.process_query('What is AI?', ['AI context'], ProcessingMode.EXTRACTIVE_ONLY)
-        self.assertEqual(result.metadata.get('model'), 'deberta')
+        self.assertEqual(result.metadata.get('model'), 'claude')
         self.assertAlmostEqual(result.metadata.get('model_confidence'), 0.9)
 
     def test_boost_documents(self):
@@ -172,15 +164,17 @@ class TestHybridPipeline(unittest.TestCase):
             SimpleNamespace(content='a', meta={'section_name': 'partners'}, score=1.0),
             SimpleNamespace(content='b', meta={'section_name': 'intro'}, score=1.0),
         ]
-        mock_config = {
-            'retrieval': {'section_name_boost': 2.0},
-            'section_priorities': {
-                'partnership_queries': {
-                    'priority_sections': ['partners'],
-                    'boost_factor': 3.0,
+        mock_config = SimpleNamespace(
+            retrieval=SimpleNamespace(section_name_boost=2.0),
+            section_priorities=SimpleNamespace(
+                queries={
+                    'partnership_queries': {
+                        'priority_sections': ['partners'],
+                        'boost_factor': 3.0,
+                    }
                 }
-            },
-        }
+            ),
+        )
         with patch('weaviate_rag_pipeline_transformers.CONFIG', mock_config):
             boosted = boost_documents(docs, 'partnership')
         self.assertGreater(boosted[0].score, boosted[1].score)
@@ -188,14 +182,13 @@ class TestHybridPipeline(unittest.TestCase):
 
     def test_query_classifier_partnership(self):
         from weaviate_rag_pipeline_transformers import QueryClassifier
+        from types import SimpleNamespace
 
-        cfg = {
-            'section_priorities': {
-                'partnership_queries': {
-                    'keywords': ['partner'],
-                }
-            }
-        }
+        cfg = SimpleNamespace(
+            section_priorities=SimpleNamespace(
+                queries={'partnership_queries': {'keywords': ['partner']}}
+            )
+        )
         with patch('weaviate_rag_pipeline_transformers.CONFIG', cfg):
             cls = QueryClassifier(cfg)
             q_type = cls.classify('Who are the project partners?')

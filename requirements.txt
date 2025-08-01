@@ -8,9 +8,7 @@ weaviate-client>=4.16.0
 
 # Machine Learning and NLP - Fixed versions for compatibility
 numpy>=1.21.0,<2.0.0  # Prevent NumPy 2.x compatibility issues
-sentence-transformers>=4.1.0,<6.0.0
-transformers>=4.20.0,<5.0.0
-torch>=2.0.0
+anthropic>=0.60.0
 
 # Document Processing
 PyPDF2>=3.0.1
@@ -30,5 +28,5 @@ tqdm>=4.64.0
 # Optional: Fix protobuf warnings (uncomment if needed)
 # protobuf>=5.29.0,<6.0
 # LLM client
-openai>=1.0.0
+# Using Anthropics Claude API
 

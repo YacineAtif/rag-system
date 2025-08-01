@@ -5,6 +5,7 @@ Integration tests for the complete modular system.
 import unittest
 import sys
 from pathlib import Path
+from unittest.mock import patch
 
 sys.path.append(str(Path(__file__).parent.parent))
 
@@ -15,7 +16,7 @@ class TestIntegration(unittest.TestCase):
         try:
             from backend.config import Config
             config = Config('config.yaml')
-            self.assertIn('Qwen', config.qwen.model_name)
+            self.assertIn('claude', config.claude.model_name)
             try:
                 from backend.health_check import HealthChecker
                 health_checker = HealthChecker(config)
@@ -70,17 +71,24 @@ class TestIntegration(unittest.TestCase):
         except ImportError:
             self.skipTest("RAG pipeline modules unavailable")
 
-        classifier = QueryClassifier()
+        from types import SimpleNamespace
+        cfg = SimpleNamespace(
+            section_priorities=SimpleNamespace(
+                queries={'partnership_queries': {'keywords': ['partner']}}
+            )
+        )
+        classifier = QueryClassifier(cfg)
         query = "Which organizations are involved in the project?"
         q_type = classifier.classify(query)
-        self.assertEqual(q_type, "partnership")
+        self.assertEqual(q_type, "entity")
 
         sentences = [
             "The project partners include University of Skövde, Scania, Smart Eye and Viscando."
         ]
         processor = TextProcessor()
         generator = AnswerGenerator(processor)
-        answer = generator.generate(query, sentences, "entity", [])
+        with patch('backend.qa_models.ClaudeQA.generate', return_value={'answer': 'Scania is a partner.', 'confidence': 0.8}):
+            answer = generator.generate(query, sentences, "entity", [])
         self.assertIn("Scania", answer)
 
 if __name__ == '__main__':

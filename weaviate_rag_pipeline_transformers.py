@@ -5,7 +5,7 @@ import requests
 from pathlib import Path
 from typing import List, Dict, Optional, Tuple
 from backend.config import Config
-from backend.qa_models import DeBERTaQA, QwenGenerator
+from backend.qa_models import ClaudeQA
 import subprocess
 
 CONFIG = Config()
@@ -184,8 +184,13 @@ class QueryClassifier:
 
     def __init__(self, config: Optional[Config] = None):
         self.config = config or CONFIG
-        pri = self.config.section_priorities.queries.get("partnership_queries", {})
-        self.partnership_keywords = [kw.lower() for kw in pri.get("keywords", [])]
+        pri_cfg = {}
+        sp = getattr(self.config, "section_priorities", {})
+        if hasattr(sp, "queries"):
+            pri_cfg = sp.queries.get("partnership_queries", {})
+        elif isinstance(sp, dict):
+            pri_cfg = sp.get("partnership_queries", {})
+        self.partnership_keywords = [kw.lower() for kw in pri_cfg.get("keywords", [])]
 
     def classify(self, query: str) -> str:
         q = query.lower().strip()
@@ -339,7 +344,7 @@ class TextProcessor:
 
 
 class AnswerGenerator:
-    """Generate answers using DeBERTaQA or Qwen depending on query type."""
+    """Generate answers using Claude Haiku."""
 
     def __init__(self, processor: TextProcessor, config: Optional[Config] = None):
         self.processor = processor
@@ -365,79 +370,15 @@ class AnswerGenerator:
 
         top_sentences = self._select_sentences(sentences, query)
 
-        # definition/factual queries use DeBERTa first
-        if query_type == "definition":
-            qa = DeBERTaQA(self.config)
-            qa_res = qa.answer(query, top_sentences[:4])
-            if qa_res.get("confidence", 0) >= self.config.deberta.confidence_threshold and qa_res.get("answer"):
-                return qa_res["answer"]
+        instruction = None
+        try:
+            instruction = self.config.prompting.context_instructions.get(query_type)
+        except Exception:
+            instruction = None
 
-            gen = QwenGenerator(self.config)
-            gen_res = gen.generate(query, top_sentences[:4])
-            if gen_res.get("answer"):
-                return gen_res["answer"]
-
-            return create_natural_answer(top_sentences[:4], query)
-
-        # non-factual queries handled directly by Qwen
-        if query_type in {"entity", "procedural", "comparison", "general"}:
-            if query_type == "entity":
-                relationship_keywords = [
-                    "partner",
-                    "collaborator",
-                    "organization",
-                    "company",
-                    "involved",
-                    "working",
-                    "team",
-                    "group",
-                    "member",
-                    "participant",
-                    "contributor",
-                    "stakeholder",
-                    "entity",
-                    "institution",
-                    "department",
-                    "division",
-                ]
-
-                if any(word in query.lower() for word in relationship_keywords):
-                    try:
-                        llm = QwenGenerator(self.config)
-                        answer_res = llm.generate(query, top_sentences[:4])
-                        if answer_res.get("answer"):
-                            return answer_res["answer"]
-                    except Exception:
-                        pass
-
-                entities: List[str] = []
-                for s in top_sentences:
-                    entities.extend(self.processor.extract_entities(s))
-                entities = list(dict.fromkeys(entities))
-                if entities:
-                    return "\n".join([
-                        "Entities mentioned:",
-                        "- " + "\n- ".join(entities),
-                    ])
-
-            if query_type == "procedural":
-                steps = [f"{i+1}. {self.processor.clean_text(s, 'preserve_lists')}" for i, s in enumerate(top_sentences)]
-                return "Here are the steps:\n" + "\n".join(steps)
-
-            if query_type == "comparison":
-                return "Comparison:\n" + "\n".join(f"- {s}" for s in top_sentences[:4])
-
-            # general and other entity cases use Qwen
-            try:
-                llm = QwenGenerator(self.config)
-                gen_res = llm.generate(query, top_sentences[:4])
-                if gen_res.get("answer"):
-                    return gen_res["answer"]
-            except Exception:
-                pass
-
-        # final fallback
-        return create_natural_answer(top_sentences[:4], query)
+        claude = ClaudeQA(self.config)
+        res = claude.generate(query, top_sentences[:8], instruction=instruction)
+        return res.get("answer", "")
 
 
 def create_natural_answer(sentences, query):
@@ -457,10 +398,21 @@ def create_natural_answer(sentences, query):
 
 def boost_documents(documents: List[Document], query_type: str) -> List[Document]:
     """Apply section-based score boosts to retrieved documents."""
-    retrieval_cfg = CONFIG.retrieval
-    base_boost = retrieval_cfg.section_name_boost
+    retrieval_cfg = getattr(CONFIG, "retrieval", {})
+    if hasattr(retrieval_cfg, "section_name_boost"):
+        base_boost = retrieval_cfg.section_name_boost
+    elif isinstance(retrieval_cfg, dict):
+        base_boost = retrieval_cfg.get("section_name_boost", 1.0)
+    else:
+        base_boost = 1.0
 
-    priority_cfg = CONFIG.section_priorities.queries.get(f"{query_type}_queries", {})
+    sp = getattr(CONFIG, "section_priorities", {})
+    if hasattr(sp, "queries"):
+        priority_cfg = sp.queries.get(f"{query_type}_queries", {})
+    elif isinstance(sp, dict):
+        priority_cfg = sp.get(f"{query_type}_queries", {})
+    else:
+        priority_cfg = {}
     priority_sections = [s.lower() for s in priority_cfg.get("priority_sections", [])]
     section_factor = priority_cfg.get("boost_factor", 1.0)
 
