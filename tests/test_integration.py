@@ -5,6 +5,7 @@ Integration tests for the complete modular system.
 import unittest
 import sys
 from pathlib import Path
+from unittest.mock import patch
 
 sys.path.append(str(Path(__file__).parent.parent))
 
@@ -86,7 +87,8 @@ class TestIntegration(unittest.TestCase):
         ]
         processor = TextProcessor()
         generator = AnswerGenerator(processor)
-        answer = generator.generate(query, sentences, "entity", [])
+        with patch('backend.qa_models.ClaudeQA.generate', return_value={'answer': 'Scania is a partner.', 'confidence': 0.8}):
+            answer = generator.generate(query, sentences, "entity", [])
         self.assertIn("Scania", answer)
 
 if __name__ == '__main__':

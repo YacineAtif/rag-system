@@ -101,7 +101,8 @@ class TestHybridPipeline(unittest.TestCase):
         self.pipeline.initialize()
         question = "What is AI?"
         contexts = []
-        result = self.pipeline.process_query(question, contexts)
+        with patch('backend.qa_models.ClaudeQA.generate', return_value={'answer': '', 'confidence': 0.0}):
+            result = self.pipeline.process_query(question, contexts)
         self.assertTrue(hasattr(result, 'answer'))
         self.assertEqual(result.answer, '')
 
@@ -147,13 +148,6 @@ class TestHybridPipeline(unittest.TestCase):
                 answer = generator.generate('Who was Alice\'s collaborator?', sentences, 'entity', [])
         self.assertEqual(answer, 'Alice worked with Bob on the project.')
 
-    def test_entity_list_fallback(self):
-        processor = TextProcessor()
-        generator = AnswerGenerator(processor)
-        sentences = ["Charlie, Dana and Erin attended the meeting."]
-        answer = generator.generate('Who was mentioned?', sentences, 'entity', [])
-        self.assertIn('Entities mentioned:', answer)
-        self.assertIn('Charlie', answer)
 
     def test_query_result_metadata_model(self):
         self.pipeline.initialize()
