@@ -376,6 +376,7 @@ class AnswerGenerator:
         except Exception:
             instruction = None
 
+
         claude = ClaudeQA(self.config)
         res = claude.generate(query, top_sentences[:8], instruction=instruction)
         if res.get("answer"):
@@ -405,8 +406,10 @@ class AnswerGenerator:
                 if res.get("answer"):
                     return res["answer"]
 
-        # final fallback
-        return create_natural_answer(top_sentences[:4], query)
+
+        claude = ClaudeQA(self.config)
+        res = claude.generate(query, top_sentences[:8], instruction=instruction)
+        return res.get("answer", "")
 
 
 def create_natural_answer(sentences, query):
