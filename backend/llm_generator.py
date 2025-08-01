@@ -2,55 +2,34 @@ import os
 from typing import List
 
 try:
-    from openai import OpenAI
-    OPENAI_V1 = True
-except Exception:  # pragma: no cover - fallback for older openai or missing pkg
-    try:
-        import openai  # type: ignore
-        OPENAI_V1 = False
-    except Exception:
-        OpenAI = None  # type: ignore
-        openai = None  # type: ignore
-        OPENAI_V1 = None
+    from anthropic import Anthropic
+except Exception:  # pragma: no cover - anthropic optional
+    Anthropic = None  # type: ignore
 
 
 class LLMGenerator:
-    """Simple wrapper around OpenAI ChatCompletion API."""
+    """Simple wrapper around the Claude API."""
 
-    def __init__(self, model: str = "gpt-3.5-turbo"):
-        self.api_key = os.getenv("OPENAI_API_KEY")
+    def __init__(self, model: str = "claude-3-5-haiku-20241022"):
+        self.api_key = os.getenv("ANTHROPIC_API_KEY")
         self.model = model
 
     def generate(self, query: str, context_sentences: List[str]) -> str:
         if not self.api_key:
-            raise ValueError("OPENAI_API_KEY not set")
-        context = " ".join(context_sentences[:4])
+            raise ValueError("ANTHROPIC_API_KEY not set")
+        if Anthropic is None:
+            raise ImportError("anthropic package is required to use LLMGenerator")
+        client = Anthropic(api_key=self.api_key)
+        context = " ".join(context_sentences[:8])
         messages = [
-            {
-                "role": "system",
-                "content": (
-                    "Answer the question using the provided context. "
-                    "Respond in fluent, natural prose. Avoid bullet lists and repetition."
-                ),
-            },
-            {
-                "role": "user",
-                "content": f"Context: {context}\n\nQuestion: {query}",
-            },
+            {"role": "user", "content": f"Context: {context}\n\nQuestion: {query}"}
         ]
-        if OPENAI_V1 is True:
-            client = OpenAI(api_key=self.api_key)
-            try:
-                response = client.chat.completions.create(model=self.model, messages=messages)
-            except Exception as e:  # pragma: no cover - runtime errors
-                raise RuntimeError(f"OpenAI API call failed: {e}") from e
-            return response.choices[0].message.content.strip()
-        elif OPENAI_V1 is False:
-            openai.api_key = self.api_key
-            try:
-                response = openai.ChatCompletion.create(model=self.model, messages=messages)
-            except Exception as e:
-                raise RuntimeError(f"OpenAI API call failed: {e}") from e
-            return response.choices[0].message["content"].strip()
-        else:
-            raise ImportError("openai package is required to use LLMGenerator")
+        try:  # pragma: no cover - runtime errors
+            response = client.messages.create(
+                model=self.model,
+                max_tokens=512,
+                messages=messages,
+            )
+            return "".join(block.text for block in response.content).strip()
+        except Exception as e:  # pragma: no cover - runtime errors
+            raise RuntimeError(f"Anthropic API call failed: {e}") from e
