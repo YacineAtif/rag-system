@@ -376,6 +376,37 @@ class AnswerGenerator:
         except Exception:
             instruction = None
 
+
+        claude = ClaudeQA(self.config)
+        res = claude.generate(query, top_sentences[:8], instruction=instruction)
+        if res.get("answer"):
+            return res["answer"]
+
+        if query_type in {"entity", "procedural", "comparison", "general"}:
+            if query_type == "entity":
+                entities: List[str] = []
+                for s in top_sentences:
+                    entities.extend(self.processor.extract_entities(s))
+                entities = list(dict.fromkeys(entities))
+                if entities:
+                    return "\n".join([
+                        "Entities mentioned:",
+                        "- " + "\n- ".join(entities),
+                    ])
+
+            if query_type == "procedural":
+                steps = [f"{i+1}. {self.processor.clean_text(s, 'preserve_lists')}" for i, s in enumerate(top_sentences)]
+                return "Here are the steps:\n" + "\n".join(steps)
+
+            if query_type == "comparison":
+                return "Comparison:\n" + "\n".join(f"- {s}" for s in top_sentences[:4])
+
+            if not res.get("answer"):
+                res = claude.generate(query, top_sentences[:8], instruction=instruction)
+                if res.get("answer"):
+                    return res["answer"]
+
+
         claude = ClaudeQA(self.config)
         res = claude.generate(query, top_sentences[:8], instruction=instruction)
         return res.get("answer", "")
