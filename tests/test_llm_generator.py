@@ -1,36 +1,5 @@
-from unittest.mock import patch
+from unittest.mock import patch, MagicMock
 from backend import qa_models
-
-
-class DummyTokenizer:
-    def __call__(self, *args, **kwargs):
-        import torch
-        return {"input_ids": torch.tensor([[0, 1, 2]]), "attention_mask": torch.tensor([[1, 1, 1]])}
-
-    def decode(self, ids, skip_special_tokens=True):
-        return "dummy"
-
-
-class DummyDebertaModel:
-    def to(self, device):
-        pass
-
-    def __call__(self, **inputs):
-        import torch
-        start = torch.tensor([[0.0, 4.0, 0.0]])
-        end = torch.tensor([[0.0, 0.0, 4.0]])
-        return type("O", (), {"start_logits": start, "end_logits": end})
-
-
-class DummyQwenModel:
-    def to(self, device):
-        pass
-
-
-def test_deberta_no_contexts():
-    de = qa_models.DeBERTaQA()
-    result = de.answer('Any', [])
-    assert result == {'answer': '', 'confidence': 0.0}
 
 
 def test_llm_generator_requires_api_key():
@@ -39,37 +8,28 @@ def test_llm_generator_requires_api_key():
         try:
             gen.generate('q', ['ctx'])
         except ValueError as e:
-            assert 'OPENAI_API_KEY' in str(e)
+            assert 'ANTHROPIC_API_KEY' in str(e)
         else:
             assert False, 'ValueError not raised'
 
-    def generate(self, **kwargs):
-        return kwargs["input_ids"]
+
+def test_claude_generation_calls_api():
+    from types import SimpleNamespace
+    mock_client = MagicMock()
+    mock_resp = MagicMock()
+    mock_resp.content = [SimpleNamespace(text="hi")]
+    mock_client.messages.create.return_value = mock_resp
+    with patch('backend.llm_generator.Anthropic', return_value=mock_client):
+        with patch.dict('os.environ', {'ANTHROPIC_API_KEY': 'k'}):
+            gen = qa_models.LLMGenerator()
+            result = gen.generate('q', ['ctx'])
+    assert result == 'hi'
+    mock_client.messages.create.assert_called_once()
 
 
-def test_qwen_generator_fallback():
-    with patch("transformers.AutoModelForCausalLM.from_pretrained", side_effect=OSError), \
-         patch("backend.qa_models.LLMGenerator.generate", return_value="hello") as mock_llm:
-        gen = qa_models.QwenGenerator()
-        result = gen.generate("q", ["ctx"])
-    assert result == {"answer": "hello", "confidence": 0.6}
-    mock_llm.assert_called_once_with("q", ["ctx"])
-
-
-def test_deberta_answer_from_model():
-    with patch("transformers.AutoTokenizer.from_pretrained", return_value=DummyTokenizer()), \
-         patch("transformers.AutoModelForQuestionAnswering.from_pretrained", return_value=DummyDebertaModel()):
-        de = qa_models.DeBERTaQA()
-        res = de.answer("q", ["ctx"])
-    assert res["answer"] == "dummy"
-    assert 0.0 <= res["confidence"] <= 1.0
-
-
-def test_deberta_fallback_no_model():
-    with patch("transformers.AutoModelForQuestionAnswering.from_pretrained", side_effect=OSError), \
-         patch("transformers.AutoTokenizer.from_pretrained", side_effect=OSError):
-        de = qa_models.DeBERTaQA()
-        res = de.answer("who", ["Alice went home"])
-    assert res["answer"] == "Alice went home"
-    assert res["confidence"] > 0
-
+def test_claudeqa_generate():
+    with patch('backend.qa_models.LLMGenerator.generate', return_value='answer') as mock_gen:
+        qa = qa_models.ClaudeQA()
+        res = qa.generate('q', ['c'])
+    assert res == {'answer': 'answer', 'confidence': 0.6}
+    mock_gen.assert_called_once()

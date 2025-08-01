@@ -11,7 +11,7 @@ from dataclasses import dataclass
 # Try to import config, handle gracefully if not available
 try:
     from backend.config import Config
-    from backend.qa_models import DeBERTaQA, QwenGenerator
+    from backend.qa_models import ClaudeQA
 except ImportError:
     print("Backend config not available, using defaults")
     Config = None
@@ -43,9 +43,8 @@ class HybridPipeline:
         self.config = config or (Config() if Config else None)
         self.initialized = False
 
-        # Component placeholders (will be implemented in future iterations)
-        self.deberta_reader = None
-        self.qwen_interface = None
+        # Component placeholder for future extensions
+        self.claude_interface = None
         self.legacy_pipeline = None
 
         # Setup logging
@@ -73,58 +72,13 @@ class HybridPipeline:
         return any(k in q for k in keywords)
 
     def _route_models(self, question: str, contexts: List[str]) -> Dict[str, Any]:
-
-        if self._is_factual(question):
-            qa_contexts = contexts[: self.config.retrieval.deberta_max_context]
-            qa = DeBERTaQA(self.config)
-            res = qa.answer(question, qa_contexts)
-            if res.get("confidence", 0) >= self.config.deberta.confidence_threshold and res.get("answer"):
-                res["model"] = "deberta"
-                return res
-        gen_contexts = contexts[: self.config.retrieval.qwen_max_context]
-        gen = QwenGenerator(self.config)
-        res = gen.generate(question, gen_contexts)
-        res["model"] = "qwen"
+        """Use Claude for all queries."""
+        claude = ClaudeQA(self.config)
+        res = claude.generate(question, contexts)
+        res["model"] = "claude"
         return res
 
-        mm = getattr(self.config, "multi_model", None)
-        model_lists = mm.model_selection if mm else {}
 
-        if self._is_partnership(question):
-            order = model_lists.get("partnership_queries", ["qwen"])
-        elif self._is_factual(question):
-            order = model_lists.get("factual_queries", ["deberta", "qwen"])
-        else:
-            order = model_lists.get("general_queries", ["qwen"])
-
-        thresholds = mm.confidence_thresholds if mm else {}
-        deberta_min = thresholds.get("deberta_minimum", self.config.deberta.confidence_threshold)
-        qwen_min = thresholds.get("qwen_minimum", 0.0)
-
-        last_result: Dict[str, Any] = {"answer": "", "confidence": 0.0, "model": None}
-        for model_name in order:
-            if model_name == "deberta":
-                qa = DeBERTaQA(self.config)
-                res = qa.answer(question, contexts)
-                res["model"] = "deberta"
-                last_result = res
-                if res.get("confidence", 0) >= deberta_min and res.get("answer"):
-                    return res
-            elif model_name == "qwen":
-                instruction = None
-                if self._is_partnership(question):
-                    try:
-                        instruction = self.config.prompting["context_instructions"]["partnership"]
-                    except Exception:
-                        instruction = None
-                gen = QwenGenerator(self.config)
-                res = gen.generate(question, contexts, instruction=instruction)
-                res["model"] = "qwen"
-                last_result = res
-                if res.get("confidence", 0) >= qwen_min:
-                    return res
-
-        return last_result
 
 
     def initialize(self) -> bool:
@@ -140,11 +94,7 @@ class HybridPipeline:
             except ImportError:
                 logger.warning("Legacy pipeline module not available")
 
-            # Future: Initialize DeBERTa reader
-            # self.deberta_reader = DeBERTaReader(self.config)
 
-            # Future: Initialize Qwen interface
-            # self.qwen_interface = QwenInterface(self.config)
 
             self.initialized = True
             logger.info("Pipeline initialization completed")
@@ -212,7 +162,7 @@ class HybridPipeline:
             )
 
     def _process_extractive_placeholder(self, question: str, contexts: List[str]) -> QueryResult:
-        """Extractive mode using DeBERTa with Qwen fallback."""
+        """Extractive mode using Claude."""
         logger.info("Using extractive placeholder mode")
 
         res = self._route_models(question, contexts)
@@ -225,7 +175,7 @@ class HybridPipeline:
         )
 
     def _process_generative_placeholder(self, question: str, contexts: List[str]) -> QueryResult:
-        """Generative mode answered by Qwen."""
+        """Generative mode answered by Claude."""
         logger.info("Using generative placeholder mode")
 
         res = self._route_models(question, contexts)
@@ -264,10 +214,9 @@ class HybridPipeline:
         """Get pipeline status."""
         return {
             "initialized": self.initialized,
-            "deberta_available": self.deberta_reader is not None,
-            "qwen_available": self.qwen_interface is not None,
+            "claude_available": self.claude_interface is not None,
             "config_loaded": self.config is not None,
-            "legacy_available": self.legacy_pipeline is not None
+            "legacy_available": self.legacy_pipeline is not None,
         }
 
 # Test the pipeline
