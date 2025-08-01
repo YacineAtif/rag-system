@@ -25,6 +25,9 @@ pytest>=7.0.0
 # Dependencies that might be needed
 tqdm>=4.64.0
 
+# Graph Database
+neo4j>=5.0.0
+
 # Optional: Fix protobuf warnings (uncomment if needed)
 # protobuf>=5.29.0,<6.0
 # LLM client
