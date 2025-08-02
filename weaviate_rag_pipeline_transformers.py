@@ -446,32 +446,66 @@ class Neo4jGraphBuilder:
             return False
 
     def extract_entities_and_relationships(self, text_chunk, source_doc):
-        """Use Claude to extract entities and relationships from text"""
+        """Enhanced entity extraction with better error handling"""
         extraction_prompt = """
-        Extract entities and relationships from this text. Return JSON format:
-        {{
-            "entities": [
-                {{"name": "Entity Name", "type": "Person|Organization|Technology|Concept", "properties": {{}}}}
-            ],
-            "relationships": [
-                {{"source": "Entity1", "target": "Entity2", "relationship": "WORKS_WITH|DEVELOPS|USES", "properties": {{}}}}
-            ]
-        }}
+Extract ALL entities and their relationships from this text comprehensively across any domain:
 
-        Text: {text}
-        """
+ENTITIES TO EXTRACT (be thorough and domain-agnostic):
+- Organizations (companies, universities, institutions, agencies, groups)
+- Projects (research projects, systems, initiatives, programs, studies)
+- Technologies (tools, systems, frameworks, methods, platforms)
+- People (researchers, engineers, authors, contributors, leaders)
+- Concepts (methodologies, theories, approaches, principles)
+- Locations (cities, countries, regions, facilities)
+- Products (systems, devices, applications, services)
 
-        # Extract using Claude
-        result = self.claude_extractor.generate(
-            query=extraction_prompt.format(text=text_chunk),
-            context_sentences=[],
-            system_prompt="You are an expert at extracting structured knowledge from text."
-        )
+RELATIONSHIPS TO EXTRACT (capture semantic connections):
+- Collaboration (PARTNERS_WITH, COLLABORATES_WITH, WORKS_WITH)
+- Contribution (CONTRIBUTES_TO, DEVELOPS, CREATES, PROVIDES)
+- Participation (PARTICIPATES_IN, LEADS, SUPPORTS, MANAGES)
+- Technical (USES, IMPLEMENTS, INTEGRATES_WITH, APPLIES)
+- Organizational (EMPLOYS, AFFILIATES_WITH, SPONSORS)
+- Location (LOCATED_IN, BASED_IN, OPERATES_IN)
 
-        # Parse JSON response
+Return comprehensive JSON format:
+{
+    "entities": [
+        {"name": "Entity Name", "type": "Organization|Project|Technology|Person|Concept|Location|Product", "properties": {"description": "brief context"}}
+    ],
+    "relationships": [
+        {"source": "Entity1", "target": "Entity2", "relationship": "RELATIONSHIP_TYPE", "properties": {"context": "relationship description"}}
+    ]
+}
+
+Be thorough - extract every meaningful entity and relationship mentioned.
+
+Text: {text}
+"""
         try:
-            return json.loads(result)
-        except:
+            result = self.claude_extractor.generate(
+                query=extraction_prompt.format(text=text_chunk),
+                context_sentences=[],
+                system_prompt="You are an expert at extracting structured knowledge from text. Be comprehensive and extract ALL mentioned entities and relationships."
+            )
+            try:
+                extracted = json.loads(result)
+                if not isinstance(extracted.get("entities"), list):
+                    print(f"⚠️  Invalid entities structure in chunk from {source_doc}")
+                    return {"entities": [], "relationships": []}
+                if not isinstance(extracted.get("relationships"), list):
+                    print(f"⚠️  Invalid relationships structure in chunk from {source_doc}")
+                    extracted["relationships"] = []
+                entity_count = len(extracted["entities"])
+                rel_count = len(extracted["relationships"])
+                if entity_count > 0 or rel_count > 0:
+                    print(f"✅ Extracted {entity_count} entities, {rel_count} relationships from {source_doc}")
+                return extracted
+            except json.JSONDecodeError as e:
+                print(f"❌ JSON parsing failed for chunk from {source_doc}: {e}")
+                print(f"Claude response: {result[:200]}...")
+                return {"entities": [], "relationships": []}
+        except Exception as e:
+            print(f"❌ Entity extraction failed for chunk from {source_doc}: {e}")
             return {"entities": [], "relationships": []}
 
     def populate_graph(self, documents):
@@ -482,45 +516,177 @@ class Neo4jGraphBuilder:
 
                 # Create entities
                 for entity in extracted["entities"]:
+                    properties = entity.get("properties", {})
                     session.run(
-                        "MERGE (e:Entity {name: $name, type: $type, source: $source})",
+                        "MERGE (e:Entity {name: $name})"
+                        " SET e.type = $type, e.source = $source"
+                        " SET e += $properties",
                         name=entity["name"],
                         type=entity["type"],
-                        source=doc.meta.get("source", "")
+                        source=doc.meta.get("source", ""),
+                        properties=properties
                     )
 
                 # Create relationships
                 for rel in extracted["relationships"]:
+                    rel_type = rel.get("relationship", "RELATES").upper().replace(" ", "_")
+                    properties = rel.get("properties", {})
+                    query = (
+                        f"MATCH (a:Entity {{name: $source}}), (b:Entity {{name: $target}}) "
+                        f"MERGE (a)-[r:{rel_type} {{source: $doc_source}}]->(b) "
+                        "SET r += $properties"
+                    )
                     session.run(
-                        """
-                        MATCH (a:Entity {name: $source}), (b:Entity {name: $target})
-                        MERGE (a)-[r:RELATES {type: $rel_type, source: $doc_source}]->(b)
-                        """,
+                        query,
                         source=rel["source"],
                         target=rel["target"],
-                        rel_type=rel["relationship"],
-                        doc_source=doc.meta.get("source", "")
+                        doc_source=doc.meta.get("source", ""),
+                        properties=properties
                     )
 
-    def query_graph(self, query):
-        """Phase 2: Query knowledge graph for relationships"""
+    def validate_graph_population(self):
+        """Validate graph population quality (domain-agnostic)"""
         with self.driver.session() as session:
             result = session.run(
                 """
-                MATCH (e1:Entity)-[r]->(e2:Entity)
-                WHERE e1.name CONTAINS $search_term OR e2.name CONTAINS $search_term
-                RETURN e1.name as source, r.type as relationship, e2.name as target
+                MATCH (n:Entity)
+                RETURN n.type as entity_type, count(n) as count
+                ORDER BY count DESC
+                """
+            )
+            entity_counts = {record["entity_type"]: record["count"] for record in result}
+
+            rel_result = session.run(
+                """
+                MATCH ()-[r]->()
+                RETURN type(r) as relationship_type, count(r) as count
+                ORDER BY count DESC
+                """
+            )
+            relationship_counts = {record["relationship_type"]: record["count"] for record in rel_result}
+
+            total_entities = sum(entity_counts.values())
+            total_relationships = sum(relationship_counts.values())
+
+            print(f"📊 Graph validation: {total_entities} entities, {total_relationships} relationships")
+            print("📋 Entity types:", entity_counts)
+            print("🔗 Relationship types:", relationship_counts)
+
+            if total_entities < 5:
+                print("⚠️  Warning: Very few entities extracted. Consider improving extraction prompts.")
+            if total_relationships < 3:
+                print("⚠️  Warning: Very few relationships extracted. Relationship extraction may need improvement.")
+            if len(entity_counts) < 3:
+                print("⚠️  Warning: Limited entity type diversity. Extraction may be too narrow.")
+
+    def query_graph(self, query):
+        """Enhanced graph querying with intelligent routing"""
+        query_lower = query.lower()
+
+        if any(word in query_lower for word in ["contributor", "contribute", "partner", "involved", "collaborate"]):
+            return self._query_project_participants(query)
+        elif any(word in query_lower for word in ["role", "responsibility", "does", "provide"]):
+            return self._query_entity_roles(query)
+        elif any(word in query_lower for word in ["develop", "create", "build", "technology"]):
+            return self._query_development_relationships(query)
+        else:
+            return self._query_general_relationships(query)
+
+    def _query_project_participants(self, query):
+        """Query for project contributors and partners"""
+        with self.driver.session() as session:
+            result = session.run(
+                """
+                MATCH (project:Entity)-[r]-(participant:Entity)
+                WHERE project.type = 'Project' OR project.name CONTAINS 'project'
+                RETURN participant.name as entity, type(r) as relationship,
+                       participant.type as entity_type, project.name as project
+                UNION
+                MATCH (participant:Entity)-[r:PARTNERS_WITH|CONTRIBUTES_TO|PARTICIPATES_IN]-(other:Entity)
+                RETURN participant.name as entity, type(r) as relationship,
+                       participant.type as entity_type, other.name as project
+                LIMIT 10
+                """
+            )
+            return [
+                {"source": record["entity"], "relationship": record["relationship"],
+                 "target": record["project"], "type": record["entity_type"]}
+                for record in result
+            ]
+
+    def _query_entity_roles(self, query):
+        """Query for specific entity roles and responsibilities"""
+        entity_terms = ["scania", "smart eye", "university", "skövde", "viscando"]
+        detected_entity = None
+        for term in entity_terms:
+            if term in query.lower():
+                detected_entity = term
+                break
+
+        with self.driver.session() as session:
+            if detected_entity:
+                result = session.run(
+                    """
+                    MATCH (entity:Entity)-[r]-(other:Entity)
+                    WHERE toLower(entity.name) CONTAINS $entity_term
+                    RETURN entity.name as source, type(r) as relationship,
+                           other.name as target, entity.properties as properties
+                    LIMIT 10
+                    """,
+                    entity_term=detected_entity
+                )
+            else:
+                result = session.run(
+                    """
+                    MATCH (entity:Entity)-[r]-(other:Entity)
+                    WHERE entity.type = 'Organization'
+                    RETURN entity.name as source, type(r) as relationship,
+                           other.name as target, entity.properties as properties
+                    LIMIT 10
+                    """
+                )
+            return [
+                {"source": record["source"], "relationship": record["relationship"],
+                 "target": record["target"]}
+                for record in result
+            ]
+
+    def _query_development_relationships(self, query):
+        """Query for development and technology relationships"""
+        with self.driver.session() as session:
+            result = session.run(
+                """
+                MATCH (entity:Entity)-[r:DEVELOPS|CREATES|BUILDS|USES|IMPLEMENTS|INTEGRATES_WITH]->(tech:Entity)
+                RETURN entity.name as source, type(r) as relationship,
+                       tech.name as target, entity.type as entity_type
+                LIMIT 10
+                """
+            )
+            return [
+                {"source": record["source"], "relationship": record["relationship"],
+                 "target": record["target"], "type": record["entity_type"]}
+                for record in result
+            ]
+
+    def _query_general_relationships(self, query):
+        """Fallback general relationship query"""
+        with self.driver.session() as session:
+            result = session.run(
+                """
+                MATCH (e1:Entity)-[r]-(e2:Entity)
+                WHERE toLower(e1.name) CONTAINS toLower($term) OR toLower(e2.name) CONTAINS toLower($term)
+                RETURN e1.name as source, type(r) as relationship, e2.name as target
                 LIMIT 10
                 """,
-                search_term=query
+                term=query
             )
             return [
                 {"source": record["source"], "relationship": record["relationship"], "target": record["target"]}
                 for record in result
             ]
 
-
 class HybridQueryRouter:
+
     def __init__(self, graph_builder, vector_retriever, text_embedder):
         self.graph_builder = graph_builder
         self.vector_retriever = vector_retriever
@@ -612,7 +778,6 @@ class RAGPipeline:
         # Add Neo4j integration
         self.graph_builder = Neo4jGraphBuilder()
         self.hybrid_router = HybridQueryRouter(self.graph_builder, self.retriever, self.text_embedder)
-        self.hybrid_router = HybridQueryRouter(self.graph_builder, self.retriever, self.text_embedder)
 
     def get_document_fingerprint(self):
         """Generate fingerprint of all documents to detect changes"""
@@ -655,6 +820,55 @@ class RAGPipeline:
         previous_fingerprint = self.load_previous_fingerprint()
         return current_fingerprint != previous_fingerprint
 
+    def is_weaviate_populated(self):
+        """Check if Weaviate already contains documents"""
+        try:
+            existing_docs = self.document_store.filter_documents()
+            return len(existing_docs) > 0
+        except Exception:
+            return False
+
+    def should_process_documents(self):
+        """Check if documents need processing"""
+        weaviate_populated = self.is_weaviate_populated()
+        docs_changed = self.documents_changed()
+
+        if weaviate_populated and not docs_changed:
+            return False
+        return True
+
+    def process_documents_intelligently(self):
+        """Only process documents when necessary"""
+        if not self.should_process_documents():
+            print("✅ Documents exist in Weaviate and unchanged - skipping document processing")
+            print("💡 To force reprocessing, clear Weaviate data or modify documents")
+            return
+
+        if self.is_weaviate_populated():
+            print("🔄 Documents changed - reprocessing and re-indexing...")
+            self.document_store.delete_documents()
+        else:
+            print("🔄 Processing documents (first run)...")
+
+        print("📁 Loading documents from: documents")
+        documents = load_documents_from_folder("documents")
+        if not documents:
+            print("❌ No documents found to index")
+            return
+
+        doc_embedder = SentenceTransformersDocumentEmbedder(
+            model="sentence-transformers/all-MiniLM-L6-v2"
+        )
+        print("🔥 Warming up document embedder...")
+        doc_embedder.warm_up()
+        print(f"🔄 Embedding {len(documents)} document chunks...")
+        embedded_docs = doc_embedder.run(documents)["documents"]
+        print(f"🔄 Indexing {len(embedded_docs)} document chunks...")
+        indexing_pipeline = Pipeline()
+        indexing_pipeline.add_component("writer", DocumentWriter(document_store=self.document_store))
+        indexing_pipeline.run({"writer": {"documents": embedded_docs}})
+        print("✅ Documents indexed successfully!")
+
     def populate_knowledge_graph(self):
         """Phase 1: Build knowledge graph (only when needed)"""
 
@@ -682,6 +896,7 @@ class RAGPipeline:
         # Get all documents from Weaviate
         all_docs = self.document_store.filter_documents()
         self.graph_builder.populate_graph(all_docs)
+        self.graph_builder.validate_graph_population()
 
         # Save current document fingerprint
         current_fingerprint = self.get_document_fingerprint()
@@ -787,44 +1002,21 @@ def main():
         print(f"❌ Failed to connect to Weaviate: {e}")
         return
 
-    # Load documents
-    documents_folder = "documents"
-    documents = load_documents_from_folder(documents_folder)
-    
-    if not documents:
-        print("❌ No documents found to index")
-        return
-
-    # Create embedder for documents
-    doc_embedder = SentenceTransformersDocumentEmbedder(
-        model="sentence-transformers/all-MiniLM-L6-v2"
-    )
-
-    # Warm up the embedder
-    print("🔥 Warming up document embedder...")
-    doc_embedder.warm_up()
-
-    # Embed documents
-    print(f"🔄 Embedding {len(documents)} document chunks...")
-    embedded_docs = doc_embedder.run(documents)["documents"]
-    
-    # Index documents
-    print(f"🔄 Indexing {len(embedded_docs)} document chunks...")
-    indexing_pipeline = Pipeline()
-    indexing_pipeline.add_component("writer", DocumentWriter(document_store=document_store))
-    indexing_pipeline.run({"writer": {"documents": embedded_docs}})
-    print("✅ Documents indexed successfully!")
-
     # Create retriever for hybrid queries
     text_embedder = SentenceTransformersTextEmbedder(
         model="sentence-transformers/all-MiniLM-L6-v2",
     )
-    print("🔥 Warming up text embedder...")
-    text_embedder.warm_up()
     retriever = WeaviateEmbeddingRetriever(document_store=document_store)
 
     # Initialize RAG pipeline with Neo4j integration
     pipeline = RAGPipeline(document_store, retriever, text_embedder)
+
+    # Intelligent document processing
+    pipeline.process_documents_intelligently()
+
+    # Warm up text embedder for queries
+    print("🔥 Warming up text embedder...")
+    text_embedder.warm_up()
 
     # PHASE 1: Build Knowledge Graph (only when needed)
     if force_rebuild:
