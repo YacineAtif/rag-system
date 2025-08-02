@@ -5,7 +5,8 @@ Supports basic commands for status, health checks, and processing mode control.
 
 import sys
 from pathlib import Path
-from typing import Optional
+from typing import Optional, List
+from enum import Enum
 
 # Ensure project root on path
 sys.path.append(str(Path(__file__).resolve().parent.parent))
@@ -19,6 +20,13 @@ except Exception as e:
     raise
 
 
+class GraphMode(Enum):
+    """Retrieval modes for knowledge graph usage."""
+    TEXT = "text"
+    GRAPH = "graph"
+    HYBRID = "hybrid"
+
+
 class RAGCLI:
     """Simple interactive CLI for the RAG system."""
 
@@ -27,6 +35,8 @@ class RAGCLI:
         self.pipeline = HybridPipeline(self.config)
         self.health_checker = HealthChecker(self.config)
         self.current_mode = ProcessingMode.HYBRID_AUTO
+        self.retrieval_mode = GraphMode.TEXT
+        self.graph_built = False
         self.pipeline.initialize()
 
     def run(self) -> None:
@@ -47,6 +57,12 @@ class RAGCLI:
                     self.show_status()
                 elif user_input.lower() == "/health":
                     self.show_health()
+                elif user_input.lower() == "/buildkg":
+                    self.build_knowledge_graph()
+                elif user_input.lower() == "/graph":
+                    self.set_graph_mode("graph")
+                elif user_input.lower() == "/hybrid":
+                    self.set_graph_mode("hybrid")
                 elif user_input.lower().startswith("/mode"):
                     self.set_mode(user_input)
                 else:
@@ -60,6 +76,9 @@ class RAGCLI:
         print("  /status           Show pipeline status")
         print("  /health           Run health checks")
         print("  /mode <name>      Set processing mode")
+        print("  /buildkg          Build knowledge graph")
+        print("  /graph            Enable graph retrieval mode")
+        print("  /hybrid           Enable hybrid graph mode")
         print("  /help             Show this help message")
         print("  /quit             Exit the CLI")
 
@@ -69,6 +88,8 @@ class RAGCLI:
         for key, val in status.items():
             print(f"  {key}: {val}")
         print(f"Current mode: {self.current_mode.value}")
+        print(f"Retrieval mode: {self.retrieval_mode.value}")
+        print(f"KG built: {self.graph_built}")
 
     def show_health(self) -> None:
         results = self.health_checker.full_system_check()
@@ -94,9 +115,32 @@ class RAGCLI:
                 return
         print(f"Unknown mode: {mode_name}")
 
+    def set_graph_mode(self, mode: str) -> None:
+        mode = mode.lower()
+        if mode == "graph":
+            self.retrieval_mode = GraphMode.GRAPH
+            print("Graph mode enabled")
+        elif mode == "hybrid":
+            self.retrieval_mode = GraphMode.HYBRID
+            print("Hybrid graph mode enabled")
+        else:
+            print(f"Unknown graph mode: {mode}")
+
+    def build_knowledge_graph(self) -> None:
+        print("\n🔧 Building knowledge graph (stub)...")
+        self.graph_built = True
+        print("Knowledge graph ready")
+
+    def hybrid_retrieval(self, query: str) -> List[str]:
+        """Placeholder for knowledge graph retrieval."""
+        print("Retrieving contexts from knowledge graph (stub)")
+        return [f"KG context for: {query}"]
+
     def answer_query(self, query: str) -> None:
-        # Placeholder contexts for demonstration
-        contexts = ["This is a sample context for the query."]
+        if self.retrieval_mode in {GraphMode.GRAPH, GraphMode.HYBRID}:
+            contexts = self.hybrid_retrieval(query)
+        else:
+            contexts = ["This is a sample context for the query."]
         result = self.pipeline.process_query(query, contexts, self.current_mode)
         print(f"\nAnswer: {result.answer}")
         print(f"Confidence: {result.confidence:.3f}")

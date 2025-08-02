@@ -8,8 +8,7 @@ except Exception:  # pragma: no cover - anthropic optional
 
 
 class LLMGenerator:
-    """Simple wrapper around the Claude API."""
-
+    """Lightweight wrapper for the Anthropic Claude API."""
 
     def __init__(
         self,
@@ -19,10 +18,6 @@ class LLMGenerator:
         temperature: float = 0.1,
     ) -> None:
         self.api_key = api_key or os.getenv("ANTHROPIC_API_KEY")
-
-    def __init__(self, model: str = "claude-3-5-haiku-20241022"):
-        self.api_key = os.getenv("ANTHROPIC_API_KEY")
-
         self.model = model
         self.max_tokens = max_tokens
         self.temperature = temperature
@@ -38,13 +33,14 @@ class LLMGenerator:
             raise ValueError("ANTHROPIC_API_KEY not set")
         if Anthropic is None:
             raise ImportError("anthropic package is required to use LLMGenerator")
+
         client = Anthropic(api_key=self.api_key)
         context = " ".join(context_sentences[:8])
-
         user_content = f"Context:\n{context}\n\nQuestion:\n{query}"
         if instruction:
             user_content = f"{instruction}\n\n{user_content}"
         messages = [{"role": "user", "content": user_content}]
+
         try:  # pragma: no cover - runtime errors
             response = client.messages.create(
                 model=self.model,
@@ -52,16 +48,6 @@ class LLMGenerator:
                 temperature=self.temperature,
                 messages=messages,
                 system=system_prompt,
-
-        messages = [
-            {"role": "user", "content": f"Context: {context}\n\nQuestion: {query}"}
-        ]
-        try:  # pragma: no cover - runtime errors
-            response = client.messages.create(
-                model=self.model,
-                max_tokens=512,
-                messages=messages,
-
             )
             return "".join(block.text for block in response.content).strip()
         except Exception as e:  # pragma: no cover - runtime errors
