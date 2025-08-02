@@ -2,10 +2,13 @@ import os
 import re
 import time
 import requests
+import json
 from pathlib import Path
 from typing import List, Dict, Optional, Tuple
 from backend.config import Config
 from backend.qa_models import ClaudeQA
+from backend.llm_generator import LLMGenerator
+from neo4j import GraphDatabase
 import subprocess
 
 CONFIG = Config()
@@ -427,6 +430,135 @@ def create_natural_answer(sentences, query):
         return f"{prefix}{para1} Additionally, {para2}"
 
 
+class Neo4jGraphBuilder:
+    def __init__(self, uri="bolt://localhost:7687", user="neo4j", password="password"):
+        self.driver = GraphDatabase.driver(uri, auth=(user, password))
+        self.claude_extractor = LLMGenerator(model="claude-3-5-haiku-20241022")
+
+    def extract_entities_and_relationships(self, text_chunk, source_doc):
+        """Use Claude to extract entities and relationships from text"""
+        extraction_prompt = """
+        Extract entities and relationships from this text. Return JSON format:
+        {
+            "entities": [
+                {"name": "Entity Name", "type": "Person|Organization|Technology|Concept", "properties": {}}
+            ],
+            "relationships": [
+                {"source": "Entity1", "target": "Entity2", "relationship": "WORKS_WITH|DEVELOPS|USES", "properties": {}}
+            ]
+        }
+
+        Text: {text}
+        """
+
+        # Extract using Claude
+        result = self.claude_extractor.generate(
+            query=extraction_prompt.format(text=text_chunk),
+            context_sentences=[],
+            system_prompt="You are an expert at extracting structured knowledge from text."
+        )
+
+        # Parse JSON response
+        try:
+            return json.loads(result)
+        except:
+            return {"entities": [], "relationships": []}
+
+    def populate_graph(self, documents):
+        """Phase 1: Build knowledge graph from documents"""
+        with self.driver.session() as session:
+            for doc in documents:
+                extracted = self.extract_entities_and_relationships(doc.content, doc.meta.get("source", ""))
+
+                # Create entities
+                for entity in extracted["entities"]:
+                    session.run(
+                        "MERGE (e:Entity {name: $name, type: $type, source: $source})",
+                        name=entity["name"],
+                        type=entity["type"],
+                        source=doc.meta.get("source", "")
+                    )
+
+                # Create relationships
+                for rel in extracted["relationships"]:
+                    session.run(
+                        """
+                        MATCH (a:Entity {name: $source}), (b:Entity {name: $target})
+                        MERGE (a)-[r:RELATES {type: $rel_type, source: $doc_source}]->(b)
+                        """,
+                        source=rel["source"],
+                        target=rel["target"],
+                        rel_type=rel["relationship"],
+                        doc_source=doc.meta.get("source", "")
+                    )
+
+    def query_graph(self, query_text):
+        """Phase 2: Query knowledge graph for relationships"""
+        with self.driver.session() as session:
+            result = session.run(
+                """
+                MATCH (e1:Entity)-[r]->(e2:Entity)
+                WHERE e1.name CONTAINS $query OR e2.name CONTAINS $query
+                RETURN e1.name as source, r.type as relationship, e2.name as target
+                LIMIT 10
+                """,
+                query=query_text
+            )
+            return [
+                {"source": record["source"], "relationship": record["relationship"], "target": record["target"]}
+                for record in result
+            ]
+
+
+class HybridQueryRouter:
+    def __init__(self, graph_builder, vector_retriever):
+        self.graph_builder = graph_builder
+        self.vector_retriever = vector_retriever
+        self.claude = LLMGenerator()
+
+    def should_use_graph(self, query):
+        """Determine if query needs graph traversal"""
+        graph_keywords = ["partner", "collaborate", "relationship", "connect", "work with", "develop", "contribute"]
+        return any(keyword in query.lower() for keyword in graph_keywords)
+
+    def hybrid_retrieve(self, query):
+        """Route query to appropriate retrieval method"""
+        results = {"vector_results": [], "graph_results": []}
+
+        # Always get vector results
+        vector_docs = self.vector_retriever.run(query_embedding=query)
+        results["vector_results"] = vector_docs.get("documents", [])
+
+        # Get graph results if needed
+        if self.should_use_graph(query):
+            graph_results = self.graph_builder.query_graph(query)
+            results["graph_results"] = graph_results
+
+        return results
+
+    def synthesize_answer(self, query, hybrid_results):
+        """Combine vector and graph results for final answer"""
+        context_parts = []
+
+        # Add vector context
+        for doc in hybrid_results["vector_results"][:5]:
+            context_parts.append(doc.content)
+
+        # Add graph context
+        if hybrid_results["graph_results"]:
+            graph_context = "Relationships found: "
+            for rel in hybrid_results["graph_results"]:
+                graph_context += f"{rel['source']} {rel['relationship']} {rel['target']}. "
+            context_parts.append(graph_context)
+
+        # Generate answer using Claude
+        return self.claude.generate(
+            query=query,
+            context_sentences=context_parts,
+            system_prompt="Combine information from documents and relationship data to provide comprehensive answers."
+        )
+
+
 def boost_documents(documents: List[Document], query_type: str) -> List[Document]:
     """Apply section-based score boosts to retrieved documents."""
     retrieval_cfg = getattr(CONFIG, "retrieval", {})
@@ -458,6 +590,47 @@ def boost_documents(documents: List[Document], query_type: str) -> List[Document
 
     documents.sort(key=lambda d: d.score or 0.0, reverse=True)
     return documents
+
+class RAGPipeline:
+    def __init__(self, document_store, retriever):
+        # Existing components
+        self.document_store = document_store
+        self.retriever = retriever
+
+        # Add Neo4j integration
+        self.graph_builder = Neo4jGraphBuilder()
+        self.hybrid_router = HybridQueryRouter(self.graph_builder, self.retriever)
+        self.graph_populated = False
+
+    def populate_knowledge_graph(self):
+        """Phase 1: Build knowledge graph (run once after indexing)"""
+        if not self.graph_populated:
+            print("🔄 Phase 1: Building Knowledge Graph...")
+            print("🤖 Extracting entities and relationships with Claude...")
+
+            # Get all documents from Weaviate
+            all_docs = self.document_store.filter_documents()
+            self.graph_builder.populate_graph(all_docs)
+
+            print("📊 Knowledge graph populated!")
+            self.graph_populated = True
+
+    def query_with_graph(self, query):
+        """Phase 2: Hybrid query using both vector search and graph traversal"""
+        print("🔍 Phase 2: Hybrid retrieval (Vector + Graph)...")
+
+        # Route query through hybrid system
+        hybrid_results = self.hybrid_router.hybrid_retrieve(query)
+
+        # Synthesize final answer
+        answer = self.hybrid_router.synthesize_answer(query, hybrid_results)
+
+        return {
+            "answer": answer,
+            "vector_results": len(hybrid_results["vector_results"]),
+            "graph_results": len(hybrid_results["graph_results"])
+        }
+
 
 # --- Main Pipeline ---
 def wait_for_weaviate(url="http://localhost:8080", max_retries=30):
@@ -547,127 +720,39 @@ def main():
     indexing_pipeline.run({"writer": {"documents": embedded_docs}})
     print("✅ Documents indexed successfully!")
 
-    # Create RAG pipeline
-    print("🔍 Setting up RAG pipeline...")
-    
-    # Create components
+    # Create retriever for hybrid queries
     text_embedder = SentenceTransformersTextEmbedder(
-        model="sentence-transformers/all-MiniLM-L6-v2"
+        model="sentence-transformers/all-MiniLM-L6-v2",
     )
-    # Warm up the text embedder
     print("🔥 Warming up text embedder...")
     text_embedder.warm_up()
     retriever = WeaviateEmbeddingRetriever(document_store=document_store)
-    
-    # Create pipeline
-    rag_pipeline = Pipeline()
-    rag_pipeline.add_component("text_embedder", text_embedder)
-    rag_pipeline.add_component("retriever", retriever)
-    
-    # Connect components
-    rag_pipeline.connect("text_embedder.embedding", "retriever.query_embedding")
 
-    # Interactive QA
-    print("\n💬 Natural Language Q&A")
-    print("Ask any question about your documents. Type 'quit' to exit.")
-    
-    conversation_history = []
-    classifier = QueryClassifier(CONFIG)
-    processor = TextProcessor()
-    generator = AnswerGenerator(processor)
+    # Initialize RAG pipeline with Neo4j integration
+    pipeline = RAGPipeline(document_store, retriever)
 
-    strategy_map = {
-        "entity": "preserve_structure",
-        "definition": "clean_moderate",
-        "procedural": "preserve_lists",
-        "comparison": "balanced",
-        "general": "balanced",
-        "partnership": "preserve_structure",
-    }
+    # PHASE 1: Build Knowledge Graph (one-time after indexing)
+    pipeline.populate_knowledge_graph()
 
-    retrieval_cfg = CONFIG.retrieval
-    topk_map = {
-        "entity": retrieval_cfg.default_top_k,
-        "definition": retrieval_cfg.factual_top_k or retrieval_cfg.default_top_k,
-        "procedural": retrieval_cfg.default_top_k,
-        "comparison": retrieval_cfg.default_top_k,
-        "general": retrieval_cfg.default_top_k,
-        "partnership": retrieval_cfg.partnership_top_k or retrieval_cfg.default_top_k,
-    }
+    # PHASE 2: Interactive Q&A with hybrid retrieval
+    print("\n💬 Hybrid Q&A (Vector + Knowledge Graph)")
+    print("Ask questions about partnerships, collaborations, or general content.")
 
     while True:
-        try:
-            query = input("\n❓ You: ").strip()
-            if query.lower() in ['quit', 'exit', 'q']:
-                print("👋 Goodbye!")
-                break
-            
-            if not query:
-                continue
-            
-            print("\n🔍 Thinking...")
-            start_time = time.time()
-
-            query_type = classifier.classify(query)
-            clean_strategy = strategy_map.get(query_type, "balanced")
-            top_k = topk_map.get(query_type, 5)
-
-            history_context = " ".join(h["query"] for h in conversation_history[-2:])
-            full_query = f"{history_context} {query}".strip() if history_context else query
-
-            # Run the pipeline
-            result = rag_pipeline.run(
-                {
-                    "text_embedder": {"text": full_query},
-                    "retriever": {"top_k": top_k}
-                }
-            )
-
-            # Process results
-            documents = result["retriever"]["documents"]
-            documents = boost_documents(documents, query_type)
-            sentences = []
-            sources = set()
-
-            for doc in documents:
-                extracted = processor.extract_quality_sentences(
-                    doc.content, strategy=clean_strategy
-                )
-                sentences.extend(extracted)
-                sources.add(doc.meta.get("filename", "Unknown"))
-
-            # DEBUG: Show what sentences were extracted
-            print(f"🔍 DEBUG: Found {len(sentences)} quality sentences")
-            for i, sentence in enumerate(sentences[:3]):
-                print(f"   {i+1}: {sentence[:100]}...")
-
-            # Generate answer using new generator
-            answer = generator.generate(query, sentences, query_type, conversation_history)
-
-            # Add sources (rest remains the same)
-            if sources and answer != "I don't know.":
-                source_list = sorted([s for s in sources if s != 'Unknown'])
-                if source_list:
-                    answer += f"\n\n📚 Sources: {', '.join(source_list)}"
-            
-            # Update conversation history
-            conversation_history.append({"query": query, "answer": answer})
-            if len(conversation_history) > 5:
-                conversation_history.pop(0)
-            
-            elapsed = time.time() - start_time
-            print(f"\n💬 Answer (in {elapsed:.2f}s):")
-            print("-" * 60)
-            print(answer)
-            print("-" * 60)
-            
-        except KeyboardInterrupt:
-            print("\n👋 Goodbye!")
+        query = input("\n❓ You: ").strip()
+        if query.lower() == 'quit':
             break
-        except Exception as e:
-            print(f"❌ Error: {e}")
-            import traceback
-            traceback.print_exc()
+
+        start_time = time.time()
+        result = pipeline.query_with_graph(query)
+        elapsed = time.time() - start_time
+
+        print(f"\n💬 Answer (in {elapsed:.2f}s):")
+        print("-" * 60)
+        print(result["answer"])
+        print(f"\n📊 Retrieved: {result['vector_results']} vector + {result['graph_results']} graph results")
+        print("-" * 60)
+
 
 if __name__ == "__main__":
     main()
