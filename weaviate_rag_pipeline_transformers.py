@@ -502,17 +502,17 @@ class Neo4jGraphBuilder:
                         doc_source=doc.meta.get("source", "")
                     )
 
-    def query_graph(self, query_text):
+    def query_graph(self, query):
         """Phase 2: Query knowledge graph for relationships"""
         with self.driver.session() as session:
             result = session.run(
                 """
                 MATCH (e1:Entity)-[r]->(e2:Entity)
-                WHERE e1.name CONTAINS $query OR e2.name CONTAINS $query
+                WHERE e1.name CONTAINS $search_term OR e2.name CONTAINS $search_term
                 RETURN e1.name as source, r.type as relationship, e2.name as target
                 LIMIT 10
                 """,
-                query=query_text
+                search_term=query
             )
             return [
                 {"source": record["source"], "relationship": record["relationship"], "target": record["target"]}
@@ -521,11 +521,11 @@ class Neo4jGraphBuilder:
 
 
 class HybridQueryRouter:
-    def __init__(self, graph_builder, vector_retriever):
+    def __init__(self, graph_builder, vector_retriever, text_embedder):
         self.graph_builder = graph_builder
         self.vector_retriever = vector_retriever
         self.claude = LLMGenerator()
-
+        self.text_embedder = text_embedder
     def should_use_graph(self, query):
         """Determine if query needs graph traversal"""
         graph_keywords = ["partner", "collaborate", "relationship", "connect", "work with", "develop", "contribute"]
@@ -604,15 +604,15 @@ def boost_documents(documents: List[Document], query_type: str) -> List[Document
     return documents
 
 class RAGPipeline:
-    def __init__(self, document_store, retriever):
+    def __init__(self, document_store, retriever, text_embedder):
         # Existing components
         self.document_store = document_store
         self.retriever = retriever
-
+        self.text_embedder = text_embedder
         # Add Neo4j integration
         self.graph_builder = Neo4jGraphBuilder()
-        self.hybrid_router = HybridQueryRouter(self.graph_builder, self.retriever)
-        self.graph_populated = False
+        self.hybrid_router = HybridQueryRouter(self.graph_builder, self.retriever, self.text_embedder)
+        self.hybrid_router = HybridQueryRouter(self.graph_builder, self.retriever, self.text_embedder)
 
     def get_document_fingerprint(self):
         """Generate fingerprint of all documents to detect changes"""
@@ -824,7 +824,7 @@ def main():
     retriever = WeaviateEmbeddingRetriever(document_store=document_store)
 
     # Initialize RAG pipeline with Neo4j integration
-    pipeline = RAGPipeline(document_store, retriever)
+    pipeline = RAGPipeline(document_store, retriever, text_embedder)
 
     # PHASE 1: Build Knowledge Graph (only when needed)
     if force_rebuild:
