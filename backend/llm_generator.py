@@ -8,7 +8,11 @@ except Exception:  # pragma: no cover - anthropic optional
 
 
 class LLMGenerator:
+
+    """Simple wrapper around the Claude API."""
+
     """Minimal wrapper around the Anthropic Claude API."""
+
 
     def __init__(
         self,
@@ -53,3 +57,4 @@ class LLMGenerator:
             return "".join(block.text for block in response.content).strip()
         except Exception as e:  # pragma: no cover - runtime errors
             raise RuntimeError(f"Anthropic API call failed: {e}") from e
+
