@@ -10,7 +10,6 @@ except Exception:  # pragma: no cover - anthropic optional
 class LLMGenerator:
     """Simple wrapper around the Claude API."""
 
-
     def __init__(
         self,
         model: str = "claude-3-5-haiku-20241022",
@@ -19,10 +18,6 @@ class LLMGenerator:
         temperature: float = 0.1,
     ) -> None:
         self.api_key = api_key or os.getenv("ANTHROPIC_API_KEY")
-
-    def __init__(self, model: str = "claude-3-5-haiku-20241022"):
-        self.api_key = os.getenv("ANTHROPIC_API_KEY")
-
         self.model = model
         self.max_tokens = max_tokens
         self.temperature = temperature
@@ -52,17 +47,8 @@ class LLMGenerator:
                 temperature=self.temperature,
                 messages=messages,
                 system=system_prompt,
-
-        messages = [
-            {"role": "user", "content": f"Context: {context}\n\nQuestion: {query}"}
-        ]
-        try:  # pragma: no cover - runtime errors
-            response = client.messages.create(
-                model=self.model,
-                max_tokens=512,
-                messages=messages,
-
             )
             return "".join(block.text for block in response.content).strip()
         except Exception as e:  # pragma: no cover - runtime errors
             raise RuntimeError(f"Anthropic API call failed: {e}") from e
+
