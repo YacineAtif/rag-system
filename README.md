@@ -130,6 +130,15 @@ model="sentence-transformers/all-MiniLM-L6-v2"  # Fast, good quality
 # model="sentence-transformers/all-mpnet-base-v2"  # Slower, higher quality
 ```
 
+### Neo4j Connection
+Specify Neo4j connection settings in `config.yaml`:
+```yaml
+neo4j:
+  uri: bolt://localhost:7687
+  user: neo4j
+  password: password
+```
+
 ## 🐳 Docker Configuration
 
 The system uses Docker Compose for Weaviate setup. Key services:
