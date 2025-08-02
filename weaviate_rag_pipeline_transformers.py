@@ -435,6 +435,16 @@ class Neo4jGraphBuilder:
         self.driver = GraphDatabase.driver(uri, auth=(user, password))
         self.claude_extractor = LLMGenerator(model="claude-3-5-haiku-20241022")
 
+    def is_graph_populated(self):
+        """Check if Neo4j already contains entities"""
+        try:
+            with self.driver.session() as session:
+                result = session.run("MATCH (n) RETURN count(n) as count")
+                record = result.single()
+                return record["count"] > 0 if record else False
+        except Exception:
+            return False
+
     def extract_entities_and_relationships(self, text_chunk, source_doc):
         """Use Claude to extract entities and relationships from text"""
         extraction_prompt = """
@@ -604,18 +614,97 @@ class RAGPipeline:
         self.hybrid_router = HybridQueryRouter(self.graph_builder, self.retriever)
         self.graph_populated = False
 
+    def get_document_fingerprint(self):
+        """Generate fingerprint of all documents to detect changes"""
+        import hashlib
+        import os
+
+        fingerprint_data = []
+        documents_path = Path("documents")
+
+        if not documents_path.exists():
+            return ""
+
+        # Get all document files with their modification times and sizes
+        for file_path in documents_path.glob("*"):
+            if file_path.is_file() and file_path.suffix.lower() in ['.md', '.txt', '.pdf', '.docx']:
+                stat = file_path.stat()
+                fingerprint_data.append(f"{file_path.name}:{stat.st_mtime}:{stat.st_size}")
+
+        # Create hash of all document metadata
+        fingerprint_str = "|".join(sorted(fingerprint_data))
+        return hashlib.md5(fingerprint_str.encode()).hexdigest()
+
+    def save_document_fingerprint(self, fingerprint):
+        """Save current document fingerprint to file"""
+        fingerprint_file = Path(".document_fingerprint")
+        with open(fingerprint_file, 'w') as f:
+            f.write(fingerprint)
+
+    def load_previous_fingerprint(self):
+        """Load previously saved document fingerprint"""
+        fingerprint_file = Path(".document_fingerprint")
+        if fingerprint_file.exists():
+            with open(fingerprint_file, 'r') as f:
+                return f.read().strip()
+        return ""
+
+    def documents_changed(self):
+        """Check if documents have changed since last graph build"""
+        current_fingerprint = self.get_document_fingerprint()
+        previous_fingerprint = self.load_previous_fingerprint()
+        return current_fingerprint != previous_fingerprint
+
     def populate_knowledge_graph(self):
-        """Phase 1: Build knowledge graph (run once after indexing)"""
-        if not self.graph_populated:
-            print("🔄 Phase 1: Building Knowledge Graph...")
-            print("🤖 Extracting entities and relationships with Claude...")
+        """Phase 1: Build knowledge graph (only when needed)"""
 
-            # Get all documents from Weaviate
-            all_docs = self.document_store.filter_documents()
-            self.graph_builder.populate_graph(all_docs)
+        # Check if graph already exists and documents haven't changed
+        graph_exists = self.graph_builder.is_graph_populated()
+        docs_changed = self.documents_changed()
 
-            print("📊 Knowledge graph populated!")
+        if graph_exists and not docs_changed:
+            print("✅ Knowledge graph exists and documents unchanged - skipping Phase 1")
+            print("💡 To force rebuild, delete Neo4j data or modify documents")
             self.graph_populated = True
+            return
+
+        if graph_exists and docs_changed:
+            print("🔄 Documents changed - rebuilding knowledge graph...")
+            # Optional: Clear existing graph before rebuilding
+            print("🗑️  Clearing existing graph data...")
+            with self.graph_builder.driver.session() as session:
+                session.run("MATCH (n) DETACH DELETE n")
+        elif not graph_exists:
+            print("🔄 Phase 1: Building Knowledge Graph (first run)...")
+
+        print("🤖 Extracting entities and relationships with Claude...")
+
+        # Get all documents from Weaviate
+        all_docs = self.document_store.filter_documents()
+        self.graph_builder.populate_graph(all_docs)
+
+        # Save current document fingerprint
+        current_fingerprint = self.get_document_fingerprint()
+        self.save_document_fingerprint(current_fingerprint)
+
+        print("📊 Knowledge graph populated!")
+        self.graph_populated = True
+
+    def force_rebuild_graph(self):
+        """Force complete graph rebuild regardless of changes"""
+        print("🔄 Force rebuilding knowledge graph...")
+
+        # Clear existing graph
+        with self.graph_builder.driver.session() as session:
+            session.run("MATCH (n) DETACH DELETE n")
+
+        # Clear fingerprint to force rebuild
+        fingerprint_file = Path(".document_fingerprint")
+        if fingerprint_file.exists():
+            fingerprint_file.unlink()
+
+        # Rebuild graph
+        self.populate_knowledge_graph()
 
     def query_with_graph(self, query):
         """Phase 2: Hybrid query using both vector search and graph traversal"""
@@ -667,6 +756,10 @@ def check_docker_containers():
 def main():
     print("🤖 Domain-Restricted RAG System (Haystack v2)")
     print("=" * 70)
+
+    import sys
+    # Check for force rebuild flag
+    force_rebuild = "--rebuild-graph" in sys.argv
 
     # Start infrastructure if needed
     if check_docker_containers():
@@ -733,8 +826,11 @@ def main():
     # Initialize RAG pipeline with Neo4j integration
     pipeline = RAGPipeline(document_store, retriever)
 
-    # PHASE 1: Build Knowledge Graph (one-time after indexing)
-    pipeline.populate_knowledge_graph()
+    # PHASE 1: Build Knowledge Graph (only when needed)
+    if force_rebuild:
+        pipeline.force_rebuild_graph()
+    else:
+        pipeline.populate_knowledge_graph()
 
     # PHASE 2: Interactive Q&A with hybrid retrieval
     print("\n💬 Hybrid Q&A (Vector + Knowledge Graph)")
