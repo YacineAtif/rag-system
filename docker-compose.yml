@@ -42,9 +42,24 @@ services:
       production8_weaviate-net:
         aliases:
           - t2v-transformers
+  neo4j:
+    image: neo4j:community
+    ports:
+      - "7474:7474"
+      - "7687:7687"
+    environment:
+      - NEO4J_AUTH=neo4j/password
+    volumes:
+      - neo4j_data:/data
+    networks:
+      production8_weaviate-net:
+        aliases:
+          - neo4j
 networks:
   production8_weaviate-net:
     driver: bridge
     ipam:
       config:
         - subnet: "172.29.0.0/16"
+volumes:
+  neo4j_data:

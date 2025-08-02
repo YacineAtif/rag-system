@@ -38,9 +38,11 @@ class TestConfig(unittest.TestCase):
         self.assertTrue(hasattr(config, 'retrieval'))
         self.assertTrue(hasattr(config.retrieval, 'default_top_k'))
         self.assertTrue(hasattr(config, 'hardware'))
+        self.assertTrue(hasattr(config, 'neo4j'))
 
         self.assertIsInstance(config.retrieval.default_top_k, int)
         self.assertIsInstance(config.hardware.use_gpu, bool)
+        self.assertIsInstance(config.neo4j.uri, str)
 
     def test_validation(self):
         """Test configuration validation."""
