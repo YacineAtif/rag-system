@@ -18,8 +18,6 @@ class LLMGenerator:
     """Simple wrapper around the Claude API."""
 
 
-    """Minimal wrapper around the Anthropic Claude API."""
-
 
 
 
@@ -35,7 +33,9 @@ class LLMGenerator:
         self.api_key = api_key or os.getenv("ANTHROPIC_API_KEY")
 
 
+
         self.api_key = api_key or os.getenv("ANTHROPIC_API_KEY")
+
 
         self.model = model
         self.api_key = api_key or os.getenv("ANTHROPIC_API_KEY")
