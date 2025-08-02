@@ -435,6 +435,47 @@ class Neo4jGraphBuilder:
         self.driver = GraphDatabase.driver(uri, auth=(user, password))
         self.claude_extractor = LLMGenerator(model="claude-3-5-haiku-20241022")
 
+    def extract_json_from_claude_response(self, response_text):
+        """Extract JSON from Claude's response, handling explanatory text"""
+        import re
+
+        response_text = response_text.strip()
+        json_patterns = [
+            r"```json\s*([\s\S]*?)\s*```",
+            r"```\s*([\s\S]*?)\s*```",
+            r"\{[\s\S]*\}",
+        ]
+
+        for pattern in json_patterns:
+            matches = re.findall(pattern, response_text)
+            if matches:
+                json_text = matches[0] if isinstance(matches[0], str) else matches[0]
+                try:
+                    return json.loads(json_text)
+                except json.JSONDecodeError:
+                    continue
+
+        if "Based on" in response_text and "{" in response_text:
+            start_idx = response_text.find("{")
+            end_idx = response_text.rfind("}") + 1
+            if start_idx >= 0 and end_idx > start_idx:
+                json_text = response_text[start_idx:end_idx]
+                try:
+                    return json.loads(json_text)
+                except json.JSONDecodeError:
+                    pass
+
+        return {"entities": [], "relationships": []}
+
+    def is_valid_chunk(self, text_chunk):
+        """Check if chunk has meaningful content for extraction"""
+        if not text_chunk or len(text_chunk.strip()) < 20:
+            return False
+        meaningful_chars = sum(1 for c in text_chunk if c.isalnum())
+        if meaningful_chars < len(text_chunk) * 0.3:
+            return False
+        return True
+
     def is_graph_populated(self):
         """Check if Neo4j already contains entities"""
         try:
@@ -447,8 +488,11 @@ class Neo4jGraphBuilder:
 
     def extract_entities_and_relationships(self, text_chunk, source_doc):
         """Enhanced entity extraction with better error handling"""
-        extraction_prompt = """
-Extract ALL entities and their relationships from this text comprehensively across any domain:
+        if not self.is_valid_chunk(text_chunk):
+            print(f"⏭️  Skipping low-content chunk from {source_doc}")
+            return {"entities": [], "relationships": []}
+
+        extraction_prompt = """Extract ALL entities and their relationships from this text comprehensively across any domain:
 
 ENTITIES TO EXTRACT (be thorough and domain-agnostic):
 - Organizations (companies, universities, institutions, agencies, groups)
@@ -468,14 +512,14 @@ RELATIONSHIPS TO EXTRACT (capture semantic connections):
 - Location (LOCATED_IN, BASED_IN, OPERATES_IN)
 
 Return comprehensive JSON format:
-{{
+{
     "entities": [
-        {{"name": "Entity Name", "type": "Organization|Project|Technology|Person|Concept|Location|Product", "properties": {{"description": "brief context"}}}}
+        {"name": "Entity Name", "type": "Organization|Project|Technology|Person|Concept|Location|Product", "properties": {"description": "brief context"}}
     ],
     "relationships": [
-        {{"source": "Entity1", "target": "Entity2", "relationship": "RELATIONSHIP_TYPE", "properties": {{"context": "relationship description"}}}}
+        {"source": "Entity1", "target": "Entity2", "relationship": "RELATIONSHIP_TYPE", "properties": {"context": "relationship description"}}
     ]
-}}
+}
 
 Be thorough - extract every meaningful entity and relationship mentioned.
 
@@ -485,27 +529,36 @@ Text: {text}
             result = self.claude_extractor.generate(
                 query=extraction_prompt.format(text=text_chunk),
                 context_sentences=[],
-                system_prompt="You are an expert at extracting structured knowledge from text. Be comprehensive and extract ALL mentioned entities and relationships."
+                system_prompt="""You are an expert at extracting structured knowledge from text. 
+
+CRITICAL INSTRUCTIONS:
+- Return ONLY valid JSON in the exact format specified
+- Do NOT include explanatory text before or after the JSON
+- If the text contains no meaningful entities, return: {"entities": [], "relationships": []}
+- Be comprehensive but ensure valid JSON format
+
+Extract ALL mentioned entities and relationships from the provided text.""",
             )
-            try:
-                extracted = json.loads(result)
-                if not isinstance(extracted.get("entities"), list):
-                    print(f"⚠️  Invalid entities structure in chunk from {source_doc}")
-                    return {"entities": [], "relationships": []}
-                if not isinstance(extracted.get("relationships"), list):
-                    print(f"⚠️  Invalid relationships structure in chunk from {source_doc}")
-                    extracted["relationships"] = []
-                entity_count = len(extracted["entities"])
-                rel_count = len(extracted["relationships"])
-                if entity_count > 0 or rel_count > 0:
-                    print(f"✅ Extracted {entity_count} entities, {rel_count} relationships from {source_doc}")
-                return extracted
-            except json.JSONDecodeError as e:
-                print(f"❌ JSON parsing failed for chunk from {source_doc}: {e}")
-                print(f"Claude response: {result[:200]}...")
-                return {"entities": [], "relationships": []}
+            extracted = self.extract_json_from_claude_response(result)
+            if not isinstance(extracted.get("entities"), list):
+                print(f"⚠️  Invalid entities structure in chunk from {source_doc}")
+                extracted["entities"] = []
+            if not isinstance(extracted.get("relationships"), list):
+                print(f"⚠️  Invalid relationships structure in chunk from {source_doc}")
+                extracted["relationships"] = []
+            entity_count = len(extracted["entities"])
+            rel_count = len(extracted["relationships"])
+            if entity_count > 0 or rel_count > 0:
+                print(f"✅ Extracted {entity_count} entities, {rel_count} relationships from {source_doc}")
+            else:
+                print(f"ℹ️  No entities/relationships found in chunk from {source_doc}")
+            return extracted
+        except json.JSONDecodeError as e:
+            print(f"❌ JSON parsing failed for chunk from {source_doc}: {e}")
+            print(f"Claude response preview: {result[:300]}...")
+            return {"entities": [], "relationships": []}
         except Exception as e:
-            print(f"❌ Entity extraction failed for chunk from {source_doc}: {e}")
+            print(f"❌ Unexpected error in extraction for {source_doc}: {e}")
             return {"entities": [], "relationships": []}
 
     def populate_graph(self, documents):
