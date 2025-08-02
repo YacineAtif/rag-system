@@ -1,6 +1,6 @@
 # Domain-Agnostic RAG System
 
-A flexible Retrieval-Augmented Generation (RAG) system built with Haystack v2 and Weaviate for querying domain-specific documents through natural language.
+A flexible Retrieval-Augmented Generation (RAG) system built with Haystack v2 and Weaviate for querying domain-specific documents through natural language. The project follows a **two-phase architecture**: a graph-building phase where documents are ingested into a knowledge graph, and a real-time querying phase for answering questions over that graph.
 
 ## 🚀 Features
 
@@ -15,7 +15,7 @@ A flexible Retrieval-Augmented Generation (RAG) system built with Haystack v2 an
 ## 🏗️ Architecture
 
 ```
-Documents → Chunking → Embeddings → Weaviate → Retrieval → Answer Generation
+Documents → Chunking → Embeddings → Graph DB (Neo4j/Weaviate) → Retrieval → Answer Generation
 ```
 
 ### Core Components
@@ -66,6 +66,24 @@ Wait for Weaviate to be ready:
 curl http://localhost:8080/v1/.well-known/ready
 ```
 
+### 5. Start Neo4j (Knowledge Graph)
+You can run Neo4j separately or add it to `docker-compose.yml`:
+```bash
+# Quick start using Docker
+docker run -d --name neo4j -p7474:7474 -p7687:7687 -e NEO4J_AUTH=neo4j/test neo4j:5
+```
+
+Add this service to your `docker-compose.yml` if you want to manage everything together:
+```yaml
+  neo4j:
+    image: neo4j:5
+    environment:
+      - NEO4J_AUTH=neo4j/test
+    ports:
+      - "7474:7474"
+      - "7687:7687"
+```
+
 ## 📚 Usage
 
 ### 1. Prepare Your Documents
@@ -110,6 +128,15 @@ Change the sentence transformer model:
 ```python
 model="sentence-transformers/all-MiniLM-L6-v2"  # Fast, good quality
 # model="sentence-transformers/all-mpnet-base-v2"  # Slower, higher quality
+```
+
+### Neo4j Connection
+Specify Neo4j connection settings in `config.yaml`:
+```yaml
+neo4j:
+  uri: bolt://localhost:7687
+  user: neo4j
+  password: password
 ```
 
 ## 🐳 Docker Configuration
