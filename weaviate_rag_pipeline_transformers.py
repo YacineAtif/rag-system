@@ -439,14 +439,14 @@ class Neo4jGraphBuilder:
         """Use Claude to extract entities and relationships from text"""
         extraction_prompt = """
         Extract entities and relationships from this text. Return JSON format:
-        {
+        {{
             "entities": [
-                {"name": "Entity Name", "type": "Person|Organization|Technology|Concept", "properties": {}}
+                {{"name": "Entity Name", "type": "Person|Organization|Technology|Concept", "properties": {{}}}}
             ],
             "relationships": [
-                {"source": "Entity1", "target": "Entity2", "relationship": "WORKS_WITH|DEVELOPS|USES", "properties": {}}
+                {{"source": "Entity1", "target": "Entity2", "relationship": "WORKS_WITH|DEVELOPS|USES", "properties": {{}}}}
             ]
-        }
+        }}
 
         Text: {text}
         """
@@ -526,7 +526,9 @@ class HybridQueryRouter:
         results = {"vector_results": [], "graph_results": []}
 
         # Always get vector results
-        vector_docs = self.vector_retriever.run(query_embedding=query)
+        # Generate query embedding first
+        query_embedding = self.text_embedder.run(text=query)["embedding"]
+        vector_docs = self.vector_retriever.run(query_embedding=query_embedding)
         results["vector_results"] = vector_docs.get("documents", [])
 
         # Get graph results if needed
