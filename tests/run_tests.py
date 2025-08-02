@@ -14,6 +14,7 @@ def run_all_tests():
 
     loader = unittest.TestLoader()
     start_dir = Path(__file__).parent
+    # Discover all tests including new knowledge graph tests
     suite = loader.discover(start_dir, pattern='test_*.py')
 
     test_count = suite.countTestCases()
