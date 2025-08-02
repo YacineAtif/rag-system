@@ -899,7 +899,12 @@ class RAGPipeline:
 
         if self.is_weaviate_populated():
             print("🔄 Documents changed - reprocessing and re-indexing...")
-            self.document_store.delete_documents()
+            # Get all documents first, then delete them
+            all_docs = self.document_store.filter_documents()
+            if all_docs:
+                doc_ids = [doc.id for doc in all_docs]
+                self.document_store.delete_documents(doc_ids)
+            print("🗑️  Cleared existing documents from Weaviate")
         else:
             print("🔄 Processing documents (first run)...")
 
