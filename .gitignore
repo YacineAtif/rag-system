@@ -83,6 +83,7 @@ documents/confidential/
 logs/
 temp/
 tmp/
+.document_fingerprint
 
 # Weaviate data (if using local persistence)
 weaviate_data/
