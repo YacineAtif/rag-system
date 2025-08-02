@@ -8,7 +8,11 @@ except Exception:  # pragma: no cover - anthropic optional
 
 
 class LLMGenerator:
+
     """Simple wrapper around the Claude API."""
+
+    """Minimal wrapper around the Anthropic Claude API."""
+
 
     def __init__(
         self,
@@ -33,6 +37,7 @@ class LLMGenerator:
             raise ValueError("ANTHROPIC_API_KEY not set")
         if Anthropic is None:
             raise ImportError("anthropic package is required to use LLMGenerator")
+
         client = Anthropic(api_key=self.api_key)
         context = " ".join(context_sentences[:8])
 
@@ -40,6 +45,7 @@ class LLMGenerator:
         if instruction:
             user_content = f"{instruction}\n\n{user_content}"
         messages = [{"role": "user", "content": user_content}]
+
         try:  # pragma: no cover - runtime errors
             response = client.messages.create(
                 model=self.model,
