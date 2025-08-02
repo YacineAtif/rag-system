@@ -512,14 +512,14 @@ RELATIONSHIPS TO EXTRACT (capture semantic connections):
 - Location (LOCATED_IN, BASED_IN, OPERATES_IN)
 
 Return comprehensive JSON format:
-{
+{{
     "entities": [
-        {"name": "Entity Name", "type": "Organization|Project|Technology|Person|Concept|Location|Product", "properties": {"description": "brief context"}}
+        {{"name": "Entity Name", "type": "Organization|Project|Technology|Person|Concept|Location|Product", "properties": {{"description": "brief context"}}}}
     ],
     "relationships": [
-        {"source": "Entity1", "target": "Entity2", "relationship": "RELATIONSHIP_TYPE", "properties": {"context": "relationship description"}}
+        {{"source": "Entity1", "target": "Entity2", "relationship": "RELATIONSHIP_TYPE", "properties": {{"context": "relationship description"}}}}
     ]
-}
+}}
 
 Be thorough - extract every meaningful entity and relationship mentioned.
 
