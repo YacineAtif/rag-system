@@ -32,6 +32,14 @@ class ClaudeConfig:
 
 
 @dataclass
+class Neo4jConfig:
+    """Configuration for the Neo4j knowledge graph."""
+    uri: str = "bolt://localhost:7687"
+    user: str = "neo4j"
+    password: str = "neo4j"
+
+
+@dataclass
 class RetrievalConfig:
     default_top_k: int = 5
     partnership_top_k: int = 5
@@ -105,6 +113,7 @@ class Config:
         self.weaviate = WeaviateConfig()
         self.embedding = EmbeddingConfig()
         self.claude = ClaudeConfig()
+        self.neo4j = Neo4jConfig()
         self.retrieval = RetrievalConfig()
         self.prompting = PromptingConfig()
         self.hardware = HardwareConfig()
@@ -137,6 +146,7 @@ class Config:
                 "weaviate": self.weaviate,
                 "embedding": self.embedding,
                 "claude": self.claude,
+                "neo4j": self.neo4j,
                 "retrieval": self.retrieval,
                 "prompting": self.prompting,
                 "hardware": self.hardware,
@@ -166,6 +176,12 @@ class Config:
             self.weaviate.url = os.getenv("WEAVIATE_URL")
         if os.getenv("ANTHROPIC_API_KEY"):
             self.claude.api_key = os.getenv("ANTHROPIC_API_KEY")
+        if os.getenv("NEO4J_URI"):
+            self.neo4j.uri = os.getenv("NEO4J_URI")
+        if os.getenv("NEO4J_USER"):
+            self.neo4j.user = os.getenv("NEO4J_USER")
+        if os.getenv("NEO4J_PASSWORD"):
+            self.neo4j.password = os.getenv("NEO4J_PASSWORD")
 
     def validate(self) -> List[str]:
         errors = []
@@ -192,4 +208,5 @@ class Config:
             "claude_model": self.claude.model_name,
             "retrieval_default_top_k": self.retrieval.default_top_k,
             "use_gpu": self.hardware.use_gpu,
+            "neo4j_uri": self.neo4j.uri,
         }

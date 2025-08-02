@@ -12,6 +12,11 @@ weaviate:
 embedding:
   model_name: "sentence-transformers/all-MiniLM-L6-v2"
 
+neo4j:
+  uri: "bolt://localhost:7687"
+  user: "neo4j"
+  password: "neo4j"
+
 claude:
   api_key: ""
   model_name: "claude-3-5-haiku-20241022"
