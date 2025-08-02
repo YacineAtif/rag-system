@@ -65,5 +65,27 @@ class TestCLI(unittest.TestCase):
         else:
             self.skipTest("set_mode not implemented")
 
+    def test_graph_mode_toggle(self):
+        if not self.cli_available:
+            self.skipTest("CLI not available")
+        if hasattr(self.cli, 'set_graph_mode'):
+            self.cli.set_graph_mode('graph')
+            self.assertTrue(hasattr(self.cli, 'retrieval_mode'))
+            self.cli.set_graph_mode('hybrid')
+            self.assertTrue(hasattr(self.cli, 'retrieval_mode'))
+        else:
+            self.skipTest("set_graph_mode not implemented")
+
+    @patch('sys.stdout', new_callable=StringIO)
+    def test_build_kg(self, mock_stdout):
+        if not self.cli_available:
+            self.skipTest("CLI not available")
+        if hasattr(self.cli, 'build_knowledge_graph'):
+            self.cli.build_knowledge_graph()
+            output = mock_stdout.getvalue().lower()
+            self.assertIn('graph', output)
+        else:
+            self.skipTest("build_knowledge_graph not implemented")
+
 if __name__ == '__main__':
     unittest.main()

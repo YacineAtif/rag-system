@@ -9,12 +9,16 @@ except Exception:  # pragma: no cover - anthropic optional
 
 class LLMGenerator:
 
+    """Lightweight wrapper for the Anthropic Claude API."""
+
+
     """Minimal wrapper around the Anthropic client."""
 
 
     """Simple wrapper around the Claude API."""
 
     """Minimal wrapper around the Anthropic Claude API."""
+
 
 
 
@@ -27,6 +31,10 @@ class LLMGenerator:
     ) -> None:
 
         self.api_key = api_key or os.getenv("ANTHROPIC_API_KEY")
+
+
+        self.api_key = api_key or os.getenv("ANTHROPIC_API_KEY")
+
 
         self.model = model
         self.api_key = api_key or os.getenv("ANTHROPIC_API_KEY")
@@ -54,6 +62,7 @@ class LLMGenerator:
         messages = [{"role": "user", "content": user_content}]
 
 
+
         response = client.messages.create(
             model=self.model,
             max_tokens=self.max_tokens,
@@ -62,6 +71,7 @@ class LLMGenerator:
             system=system_prompt,
         )
         return "".join(block.text for block in response.content).strip()
+
 
         try:  # pragma: no cover - runtime errors
             response = client.messages.create(

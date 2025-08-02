@@ -8,7 +8,11 @@ logger = logging.getLogger(__name__)
 
 
 class ClaudeQA:
+
+    """Thin wrapper around LLMGenerator for question answering."""
+
     """Wrapper that uses LLMGenerator to communicate with Claude."""
+
 
     def __init__(self, config: Optional[Config] = None) -> None:
         self.config = config or Config()
@@ -29,7 +33,9 @@ class ClaudeQA:
         contexts: List[str],
         instruction: Optional[str] = None,
     ) -> Dict[str, Any]:
+
         """Generate an answer with Claude."""
+
         try:
             answer = self.generator.generate(
                 query,
