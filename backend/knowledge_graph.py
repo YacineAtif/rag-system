@@ -1,4 +1,6 @@
 
+from __future__ import annotations
+
 from typing import List, Tuple
 from neo4j import Driver
 
@@ -38,8 +40,6 @@ def hybrid_retrieval(query: str, vector_results: List[str], driver: Driver, top_
         if len(combined) >= top_k:
             break
     return combined
-
-from __future__ import annotations
 
 """Neo4j based knowledge graph utilities."""
 
