@@ -3,6 +3,7 @@
 results with vector search.
 """
 
+import re
 from typing import List, Dict, Any
 
 try:
@@ -21,8 +22,48 @@ def _classify_query(query: str) -> str:
         "who",
         "partner",
         "collaborator",
+        "role",
     ]
     return "graph" if any(k in q for k in graph_keywords) else "vector"
+
+
+def _extract_entity_name(query: str) -> str:
+    """Extract a probable entity name from a natural language query."""
+    patterns = [
+        r"what is(?: the)? (.+?)'s role",
+        r"what is(?: the)? role of (.+)",
+        r"what is(?: the)? (.+?) role",
+        r"who are(?: the)? partners of (.+)",
+        r"who are(?: the)? (.+?)'s partners",
+        r"who are(?: the)? (.+?) partners",
+        r"who does (.+?) partner with",
+    ]
+    for pattern in patterns:
+        match = re.search(pattern, query, flags=re.IGNORECASE)
+        if match:
+            entity = match.group(1).strip()
+            entity = re.sub(r"[?.,]$", "", entity).strip()
+            return entity
+
+    question_words = {"who", "what", "where", "when", "why", "how"}
+    connectors = {"of", "the", "and", "&", "for"}
+    tokens = query.split()
+    name_tokens: List[str] = []
+    for token in tokens:
+        cleaned = re.sub(r"[?.,]", "", token)
+        if not name_tokens:
+            if cleaned.lower() in question_words:
+                continue
+            if cleaned[:1].isupper():
+                name_tokens.append(cleaned)
+        else:
+            if cleaned[:1].isupper() or cleaned.lower() in connectors:
+                name_tokens.append(cleaned)
+            else:
+                break
+    if name_tokens:
+        return " ".join(name_tokens)
+    return query
 
 
 def query_knowledge_graph(query: str, config: Config) -> List[Dict[str, Any]]:
@@ -51,6 +92,9 @@ def query_knowledge_graph(query: str, config: Config) -> List[Dict[str, Any]]:
     driver = GraphDatabase.driver(
         neo_cfg.uri, auth=(neo_cfg.user, neo_cfg.password)
     )
+
+    entity = _extract_entity_name(query)
+
     cypher = (
         "MATCH (n)-[r*1..2]-(m) "
         "WHERE toLower(n.name) CONTAINS toLower($q) "
@@ -59,7 +103,11 @@ def query_knowledge_graph(query: str, config: Config) -> List[Dict[str, Any]]:
     records: List[Dict[str, Any]] = []
     try:
         with driver.session() as session:
+
+            result = session.run(cypher, q=entity)
+
             result = session.run(cypher, q=query)
+
             for rec in result:
                 item: Dict[str, Any] = {}
                 for key, val in rec.items():
