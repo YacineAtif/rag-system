@@ -3,6 +3,7 @@
 results with vector search.
 """
 
+import re
 from typing import List, Dict, Any
 
 try:
@@ -21,8 +22,48 @@ def _classify_query(query: str) -> str:
         "who",
         "partner",
         "collaborator",
+        "role",
     ]
     return "graph" if any(k in q for k in graph_keywords) else "vector"
+
+
+def _extract_entity_name(query: str) -> str:
+    """Extract a probable entity name from a natural language query."""
+    patterns = [
+        r"what is(?: the)? (.+?)'s role",
+        r"what is(?: the)? role of (.+)",
+        r"what is(?: the)? (.+?) role",
+        r"who are(?: the)? partners of (.+)",
+        r"who are(?: the)? (.+?)'s partners",
+        r"who are(?: the)? (.+?) partners",
+        r"who does (.+?) partner with",
+    ]
+    for pattern in patterns:
+        match = re.search(pattern, query, flags=re.IGNORECASE)
+        if match:
+            entity = match.group(1).strip()
+            entity = re.sub(r"[?.,]$", "", entity).strip()
+            return entity
+
+    question_words = {"who", "what", "where", "when", "why", "how"}
+    connectors = {"of", "the", "and", "&", "for"}
+    tokens = query.split()
+    name_tokens: List[str] = []
+    for token in tokens:
+        cleaned = re.sub(r"[?.,]", "", token)
+        if not name_tokens:
+            if cleaned.lower() in question_words:
+                continue
+            if cleaned[:1].isupper():
+                name_tokens.append(cleaned)
+        else:
+            if cleaned[:1].isupper() or cleaned.lower() in connectors:
+                name_tokens.append(cleaned)
+            else:
+                break
+    if name_tokens:
+        return " ".join(name_tokens)
+    return query
 
 
 def query_knowledge_graph(query: str, config: Config) -> List[Dict[str, Any]]:
@@ -44,30 +85,35 @@ def query_knowledge_graph(query: str, config: Config) -> List[Dict[str, Any]]:
     except Exception:  # pragma: no cover - neo4j optional
         raise ImportError("neo4j package required for knowledge graph queries")
 
-    kg_cfg = getattr(config, "knowledge_graph", None) or {}
-    uri = getattr(kg_cfg, "uri", "bolt://localhost:7687")
-    user = getattr(kg_cfg, "user", "neo4j")
-    password = getattr(kg_cfg, "password", "neo4j")
+    neo_cfg = getattr(config, "neo4j", None)
+    if neo_cfg is None:
+        raise ValueError("Neo4j configuration missing")
 
-    driver = GraphDatabase.driver(uri, auth=(user, password))
+    driver = GraphDatabase.driver(
+        neo_cfg.uri, auth=(neo_cfg.user, neo_cfg.password)
+    )
+    entity = _extract_entity_name(query)
     cypher = (
         "MATCH (n)-[r*1..2]-(m) "
         "WHERE toLower(n.name) CONTAINS toLower($q) "
         "RETURN n, m LIMIT 20"
     )
     records: List[Dict[str, Any]] = []
-    with driver.session() as session:
-        result = session.run(cypher, q=query)
-        for rec in result:
-            item: Dict[str, Any] = {}
-            for key, val in rec.items():
-                if hasattr(val, "_properties"):
-                    props = dict(val._properties)
-                    props["id"] = getattr(val, "id", None)
-                    item[key] = props
-                else:
-                    item[key] = val
-            records.append(item)
+    try:
+        with driver.session() as session:
+            result = session.run(cypher, q=entity)
+            for rec in result:
+                item: Dict[str, Any] = {}
+                for key, val in rec.items():
+                    if hasattr(val, "_properties"):
+                        props = dict(val._properties)
+                        props["id"] = getattr(val, "id", None)
+                        item[key] = props
+                    else:
+                        item[key] = val
+                records.append(item)
+    finally:
+        driver.close()
     return records
 
 
@@ -295,13 +341,11 @@ def build_knowledge_graph(
         except Exception as e:  # pragma: no cover - runtime errors
             logger.exception("Failed to process chunk: %s", e)
 
-    uri = os.getenv("NEO4J_URI", "bolt://localhost:7687")
-    user = os.getenv("NEO4J_USER", "neo4j")
-    password = os.getenv("NEO4J_PASSWORD", "neo4j")
-
-    logger.info("Connecting to Neo4j at %s", uri)
+    logger.info("Connecting to Neo4j at %s", config.neo4j.uri)
     try:
-        driver = GraphDatabase.driver(uri, auth=(user, password))
+        driver = GraphDatabase.driver(
+            config.neo4j.uri, auth=(config.neo4j.user, config.neo4j.password)
+        )
     except Exception as e:  # pragma: no cover - runtime errors
         logger.error("Failed to connect to Neo4j: %s", e)
         return False
