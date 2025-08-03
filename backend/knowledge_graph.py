@@ -1,8 +1,17 @@
 
 from __future__ import annotations
 
-from typing import List, Tuple
-from neo4j import Driver
+from typing import Any, Iterable, List, Tuple
+
+try:  # pragma: no cover - optional dependency
+    from neo4j import Driver, GraphDatabase
+except Exception:  # pragma: no cover
+    Driver = Any  # type: ignore
+
+    class GraphDatabase:  # type: ignore
+        @staticmethod
+        def driver(*args, **kwargs):  # pragma: no cover - missing dependency
+            raise ImportError("neo4j package required")
 
 
 def build_knowledge_graph(triples: List[Tuple[str, str, str]], driver: Driver) -> None:
@@ -42,10 +51,6 @@ def hybrid_retrieval(query: str, vector_results: List[str], driver: Driver, top_
     return combined
 
 """Neo4j based knowledge graph utilities."""
-
-from typing import Iterable, Tuple
-
-from neo4j import GraphDatabase
 
 from .config import Config
 
