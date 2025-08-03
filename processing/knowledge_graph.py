@@ -92,7 +92,9 @@ def query_knowledge_graph(query: str, config: Config) -> List[Dict[str, Any]]:
     driver = GraphDatabase.driver(
         neo_cfg.uri, auth=(neo_cfg.user, neo_cfg.password)
     )
+
     entity = _extract_entity_name(query)
+
     cypher = (
         "MATCH (n)-[r*1..2]-(m) "
         "WHERE toLower(n.name) CONTAINS toLower($q) "
@@ -101,7 +103,11 @@ def query_knowledge_graph(query: str, config: Config) -> List[Dict[str, Any]]:
     records: List[Dict[str, Any]] = []
     try:
         with driver.session() as session:
+
             result = session.run(cypher, q=entity)
+
+            result = session.run(cypher, q=query)
+
             for rec in result:
                 item: Dict[str, Any] = {}
                 for key, val in rec.items():
