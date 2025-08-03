@@ -11,6 +11,8 @@ from backend.llm_generator import LLMGenerator
 from neo4j import GraphDatabase
 import subprocess
 
+os.environ["TOKENIZERS_PARALLELISM"] = "false"
+
 CONFIG = Config()
 
 # Haystack v2 imports

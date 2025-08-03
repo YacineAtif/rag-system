@@ -15,7 +15,7 @@ embedding:
 neo4j:
   uri: "bolt://localhost:7687"
   user: "neo4j"
-  password: "neo4j"
+  password: "password"
 
 claude:
   api_key: ""
@@ -55,8 +55,3 @@ logging:
 hardware:
   use_gpu: false
   num_threads: 4
-
-neo4j:
-  uri: "bolt://localhost:7687"
-  user: "neo4j"
-  password: "password"
