@@ -9,6 +9,11 @@ weaviate-client>=4.16.0
 # Machine Learning and NLP - Fixed versions for compatibility
 numpy>=1.21.0,<2.0.0  # Prevent NumPy 2.x compatibility issues
 anthropic>=0.60.0
+nltk>=3.9.0
+
+# ML Dependencies for comprehensive extractor
+sentence-transformers>=2.0.0
+scikit-learn>=1.0.0
 
 # Document Processing
 PyPDF2>=3.0.1
@@ -17,25 +22,13 @@ python-docx>=1.2.0
 # Configuration and utilities
 PyYAML>=6.0
 requests>=2.32.4
-# pathlib is built-in for Python 3.4+ (removed pathlib2 dependency)
-
-# Testing (optional but recommended)
-pytest>=7.0.0
-
-# Dependencies that might be needed
 tqdm>=4.64.0
 
+# Testing
+pytest>=7.0.0
 
 # Neo4j driver for knowledge graph integration
 neo4j>=5.16.0
-=======
-# Graph Database
-neo4j>=5.0.0
 
-
-# Optional: Fix protobuf warnings (uncomment if needed)
+# Optional: Fix protobuf warnings
 protobuf>=5.29.0,<6.0
-# LLM client
-# Using Anthropics Claude API
-
-nltk>=3.9.0

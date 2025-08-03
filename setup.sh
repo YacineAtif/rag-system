@@ -18,12 +18,26 @@ echo "🔧 Installing dependencies..."
 pip install --upgrade pip wheel
 pip install -r requirements.txt
 
+# Download NLTK data
+echo "📚 Downloading NLTK data..."
+python -c "
+import nltk
+nltk.download('punkt')
+nltk.download('averaged_perceptron_tagger')
+nltk.download('maxent_ne_chunker')
+nltk.download('words')
+nltk.download('averaged_perceptron_tagger_eng')
+nltk.download('maxent_ne_chunker_tab')
+nltk.download('punkt_tab')
+print('✅ NLTK data downloaded')
+"
+
 # Check for .env file
 if [ ! -f ".env" ]; then
     echo "🔑 Setting up environment variables..."
-    echo "Please enter your OpenAI API key (it will be saved to .env):"
-    read -s OPENAI_API_KEY
-    echo "OPENAI_API_KEY=$OPENAI_API_KEY" > .env
+    echo "Please enter your Anthropic Claude API key:"
+    read -s ANTHROPIC_API_KEY
+    echo "ANTHROPIC_API_KEY=$ANTHROPIC_API_KEY" > .env
     echo "✅ API key saved to .env file"
 else
     echo "✅ .env file already exists"
@@ -52,7 +66,7 @@ python -m pytest -q
 
 echo ""
 echo "🎉 Setup complete! You can now run:"
-echo "   python weaviate_rag_pipeline_transformers.py"
+echo "   python -c 'from processing.comprehensive_extractor import ComprehensiveExtractor; print(\"Ready!\")'"
 echo ""
 echo "🔒 Your API key is safely stored in .env file"
 echo "📁 Make sure to never commit .env to git!"
