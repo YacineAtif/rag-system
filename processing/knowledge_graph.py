@@ -129,9 +129,13 @@ def hybrid_retrieval(query: str, config: Config) -> List[str]:
 
 """Knowledge graph construction utilities."""
 
+import hashlib
+import json
 import logging
 import os
-from typing import Dict, List, Optional
+import time
+from dataclasses import dataclass
+from typing import Any, Dict, List, Optional, Tuple
 
 from backend.config import Config
 from backend.qa_models import ClaudeQA
@@ -149,6 +153,72 @@ except Exception:  # pragma: no cover - optional dependency
 logger = logging.getLogger(__name__)
 
 
+@dataclass
+class DocumentMeta:
+    """Metadata stored for each processed document."""
+
+    hash: str
+    modified: float
+
+
+class DocumentTracker:
+    """Keep track of document fingerprints for incremental processing."""
+
+    def __init__(self, state_path: str) -> None:
+        self.state_path = state_path
+        self.documents: Dict[str, DocumentMeta] = {}
+        if os.path.exists(state_path):
+            try:
+                with open(state_path, "r", encoding="utf-8") as f:
+                    raw = json.load(f)
+                for name, info in raw.get("documents", {}).items():
+                    self.documents[name] = DocumentMeta(
+                        hash=info.get("hash", ""),
+                        modified=info.get("modified", 0.0),
+                    )
+            except Exception:
+                # Corrupt state, start fresh
+                self.documents = {}
+
+    def _fingerprint(self, content: str) -> str:
+        return hashlib.sha256(content.encode("utf-8")).hexdigest()
+
+    def filter_documents(self, documents: List[Any]) -> Tuple[List[Any], List[str]]:
+        """Return documents requiring processing and list of deleted docs."""
+
+        to_process: List[Any] = []
+        seen: Dict[str, DocumentMeta] = {}
+        for doc in documents:
+            meta = getattr(doc, "meta", {}) or {}
+            name = meta.get("filename") or meta.get("file_path") or str(id(doc))
+            mtime = meta.get("modified_date")
+            if isinstance(mtime, str):
+                # convert to timestamp
+                try:
+                    mtime = time.mktime(time.strptime(mtime))
+                except Exception:
+                    mtime = 0.0
+            content_hash = self._fingerprint(getattr(doc, "content", ""))
+            prev = self.documents.get(name)
+            if not prev or prev.hash != content_hash:
+                to_process.append(doc)
+            seen[name] = DocumentMeta(hash=content_hash, modified=float(mtime or 0.0))
+
+        deleted = [name for name in self.documents.keys() if name not in seen]
+        self.documents = seen
+        return to_process, deleted
+
+    def save(self) -> None:
+        data = {
+            "documents": {
+                name: {"hash": meta.hash, "modified": meta.modified}
+                for name, meta in self.documents.items()
+            }
+        }
+        with open(self.state_path, "w", encoding="utf-8") as f:
+            json.dump(data, f, indent=2)
+
+
 def _parse_triples(text: str) -> List[Dict[str, str]]:
     """Parse triples in `subject|predicate|object` format."""
     triples: List[Dict[str, str]] = []
@@ -162,12 +232,21 @@ def _parse_triples(text: str) -> List[Dict[str, str]]:
     return triples
 
 
-def build_knowledge_graph(config: Config) -> bool:
-    """Build a knowledge graph in Neo4j from documents specified in the config.
+def build_knowledge_graph(
+    config: Config,
+    state_path: str = "kg_state.json",
+    cleanup_threshold: float = 0.0,
+    stale_days: int = 30,
+) -> bool:
+    """Incrementally build or update a knowledge graph in Neo4j.
 
-    Each document chunk is processed by Claude to extract knowledge graph triples.
-    Nodes and relationships are batch inserted into Neo4j along with metadata.
+    Only documents whose content has changed since the last run are processed.
+    Existing entities and relationships are merged and their confidence scores
+    accumulated. Provenance information is tracked for each source document.
+    Entities or relationships originating solely from deleted documents are
+    pruned based on a confidence threshold.
     """
+
     logging.basicConfig(level=logging.INFO)
 
     if load_documents_from_folder is None:
@@ -184,10 +263,17 @@ def build_knowledge_graph(config: Config) -> bool:
         logger.warning("No documents found in %s", config.documents_folder)
         return False
 
+    tracker = DocumentTracker(state_path)
+    docs_to_process, deleted_docs = tracker.filter_documents(documents)
+
+    if not docs_to_process and not deleted_docs:
+        logger.info("No document changes detected; skipping update")
+        return True
+
     qa = ClaudeQA(config)
     rows: List[Dict[str, Optional[str]]] = []
 
-    for doc in documents:
+    for idx, doc in enumerate(docs_to_process, start=1):
         text = getattr(doc, "content", "")
         meta = getattr(doc, "meta", {}) or {}
         try:
@@ -205,12 +291,9 @@ def build_knowledge_graph(config: Config) -> bool:
                     }
                 )
                 rows.append(t)
+            logger.info("Processed %d/%d documents", idx, len(docs_to_process))
         except Exception as e:  # pragma: no cover - runtime errors
             logger.exception("Failed to process chunk: %s", e)
-
-    if not rows:
-        logger.warning("No triples extracted from documents")
-        return False
 
     uri = os.getenv("NEO4J_URI", "bolt://localhost:7687")
     user = os.getenv("NEO4J_USER", "neo4j")
@@ -223,22 +306,77 @@ def build_knowledge_graph(config: Config) -> bool:
         logger.error("Failed to connect to Neo4j: %s", e)
         return False
 
-    query = """
+    ts = time.time()
+    ingest_query = """
     UNWIND $rows as row
     MERGE (s:Entity {name: row.subject})
+      ON CREATE SET s.sources=[row.file], s.confidence=row.confidence, s.last_seen=$ts
+      ON MATCH SET s.sources = CASE WHEN row.file IN s.sources THEN s.sources ELSE s.sources + row.file END,
+                    s.confidence = coalesce(s.confidence,0)+row.confidence,
+                    s.last_seen=$ts
     MERGE (o:Entity {name: row.object})
+      ON CREATE SET o.sources=[row.file], o.confidence=row.confidence, o.last_seen=$ts
+      ON MATCH SET o.sources = CASE WHEN row.file IN o.sources THEN o.sources ELSE o.sources + row.file END,
+                    o.confidence = coalesce(o.confidence,0)+row.confidence,
+                    o.last_seen=$ts
     MERGE (s)-[r:RELATED {relation: row.predicate}]->(o)
-    SET r.file = row.file,
-        r.section = row.section,
-        r.confidence = row.confidence
+      ON CREATE SET r.sources=[row.file], r.confidence=row.confidence, r.last_seen=$ts
+      ON MATCH SET r.sources = CASE WHEN row.file IN r.sources THEN r.sources ELSE r.sources + row.file END,
+                    r.confidence = coalesce(r.confidence,0)+row.confidence,
+                    r.last_seen=$ts
     """
+
+    remove_query_node = """
+    MATCH (n:Entity)
+    WHERE $file IN n.sources
+    SET n.sources = [src IN n.sources WHERE src <> $file],
+        n.confidence = coalesce(n.confidence,0) - 1,
+        n.last_seen = $ts
+    WITH n
+    WHERE size(n.sources)=0 OR n.confidence <= $threshold
+    DETACH DELETE n
+    """
+
+    remove_query_rel = """
+    MATCH ()-[r:RELATED]-()
+    WHERE $file IN r.sources
+    SET r.sources = [src IN r.sources WHERE src <> $file],
+        r.confidence = coalesce(r.confidence,0) - 1,
+        r.last_seen = $ts
+    WITH r
+    WHERE size(r.sources)=0 OR r.confidence <= $threshold
+    DELETE r
+    """
+
+    cleanup_query_nodes = """
+    MATCH (n:Entity)
+    WHERE n.last_seen < $cutoff AND n.confidence <= $threshold
+    DETACH DELETE n
+    """
+
+    cleanup_query_rels = """
+    MATCH ()-[r:RELATED]-()
+    WHERE r.last_seen < $cutoff AND r.confidence <= $threshold
+    DELETE r
+    """
+
     try:
         with driver.session() as session:
-            session.execute_write(lambda tx: tx.run(query, rows=rows))
-        logger.info("Inserted %d triples into Neo4j", len(rows))
+            if rows:
+                session.run(ingest_query, rows=rows, ts=ts)
+                logger.info("Inserted/updated %d triples", len(rows))
+            for name in deleted_docs:
+                session.run(remove_query_rel, file=name, ts=ts, threshold=cleanup_threshold)
+                session.run(remove_query_node, file=name, ts=ts, threshold=cleanup_threshold)
+
+            cutoff = ts - stale_days * 24 * 3600
+            session.run(cleanup_query_rels, cutoff=cutoff, threshold=cleanup_threshold)
+            session.run(cleanup_query_nodes, cutoff=cutoff, threshold=cleanup_threshold)
+
+        tracker.save()
         return True
     except Exception as e:  # pragma: no cover - runtime errors
-        logger.exception("Failed to write to Neo4j: %s", e)
+        logger.exception("Failed to update Neo4j: %s", e)
         return False
     finally:
         try:
