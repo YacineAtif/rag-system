@@ -433,8 +433,12 @@ def create_natural_answer(sentences, query):
 
 
 class Neo4jGraphBuilder:
-    def __init__(self, uri="bolt://localhost:7687", user="neo4j", password="password"):
-        self.driver = GraphDatabase.driver(uri, auth=(user, password))
+    def __init__(self, config: Config | None = None):
+        self.config = config or CONFIG
+        self.driver = GraphDatabase.driver(
+            self.config.neo4j.uri,
+            auth=(self.config.neo4j.user, self.config.neo4j.password),
+        )
         self.claude_extractor = LLMGenerator(model="claude-3-5-haiku-20241022")
 
     def extract_json_from_claude_response(self, response_text):
@@ -831,7 +835,7 @@ class RAGPipeline:
         self.retriever = retriever
         self.text_embedder = text_embedder
         # Add Neo4j integration
-        self.graph_builder = Neo4jGraphBuilder()
+        self.graph_builder = Neo4jGraphBuilder(CONFIG)
         self.hybrid_router = HybridQueryRouter(self.graph_builder, self.retriever, self.text_embedder)
 
     def get_document_fingerprint(self):

@@ -35,8 +35,8 @@ class ClaudeConfig:
 class Neo4jConfig:
     """Configuration for the Neo4j knowledge graph."""
     uri: str = "bolt://localhost:7687"
-    user: str = "neo4j"
-    password: str = "neo4j"
+    user: str = ""
+    password: str = ""
 
 
 @dataclass
@@ -101,14 +101,6 @@ class LoggingConfig:
     save_response_analytics: bool = False
 
 
-@dataclass
-class Neo4jConfig:
-    """Configuration for connecting to a Neo4j database."""
-    uri: str = "bolt://localhost:7687"
-    user: str = "neo4j"
-    password: str = "password"
-
-
 class Config:
     """Central configuration management."""
 
@@ -129,7 +121,6 @@ class Config:
         self.query_processing = QueryProcessingConfig()
         self.domain_detection = DomainDetectionConfig()
         self.logging = LoggingConfig()
-        self.neo4j = Neo4jConfig()
         self.section_priorities = {}
         self.semantic_metadata = {}
 
@@ -163,7 +154,6 @@ class Config:
                 "query_processing": self.query_processing,
                 "domain_detection": self.domain_detection,
                 "logging": self.logging,
-                "neo4j": self.neo4j,
             }
 
             for name, obj in config_mappings.items():
