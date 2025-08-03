@@ -37,12 +37,23 @@ def _extract_entity_name(query: str) -> str:
         r"who are(?: the)? (.+?)'s partners",
         r"who are(?: the)? (.+?) partners",
         r"who does (.+?) partner with",
+        r"what is(?: an?| the)? (.+)",
     ]
     for pattern in patterns:
         match = re.search(pattern, query, flags=re.IGNORECASE)
         if match:
             entity = match.group(1).strip()
             entity = re.sub(r"[?.,]$", "", entity).strip()
+            return entity
+
+    # If a question references an entity via a trailing preposition like
+    # "in", "for" or "to", capture the part after the final connector.
+    if re.search(r"\b(who|what|where|when|why|how)\b", query, flags=re.IGNORECASE):
+        tail = re.search(
+            r"(?:in|for|to|of|on|at)\s+([^?.,]+)\s*$", query, flags=re.IGNORECASE
+        )
+        if tail:
+            entity = tail.group(1).strip()
             return entity
 
     question_words = {"who", "what", "where", "when", "why", "how"}
