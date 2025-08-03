@@ -7,7 +7,12 @@ from processing.comprehensive_extractor import ComprehensiveExtractor
 class DummyClaude:
     """Simple stub that returns predetermined responses."""
 
-    def generate(self, query: str, system_prompt: str | None = None):
+    def generate(
+        self,
+        query: str,
+        contexts: list[str],
+        instruction: str | None = None,
+    ):
         if "Analyze this document structure" in query:
             return {"answer": '{}'}
         if "CRITICAL: Extract ALL organizational entities" in query:

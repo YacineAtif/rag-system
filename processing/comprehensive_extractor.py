@@ -199,10 +199,11 @@ class ComprehensiveExtractor:
             "Return comprehensive section analysis as JSON."
         )
 
-        query = structure_prompt + f"\nDocument: {document_content[:2000]}"
+        query = structure_prompt
         result = self.claude_extractor.generate(
             query=query,
-            system_prompt=(
+            contexts=[document_content[:2000]],
+            instruction=(
                 "You are an expert at analyzing document structure and identifying critical information sections."
             ),
         )
@@ -213,8 +214,12 @@ class ComprehensiveExtractor:
     def extract_entities_with_specialized_prompt(self, text: str, prompt: str, source: str) -> ExtractionResult:
         """Helper calling the LLM with a specialised prompt."""
 
-        query = f"{prompt}\n\n{text}"
-        response = self.claude_extractor.generate(query=query, system_prompt=source)
+        query = prompt
+        response = self.claude_extractor.generate(
+            query=query,
+            contexts=[text],
+            instruction=source,
+        )
         data = self.extract_json_from_claude_response(response)
         return ExtractionResult(data.get("entities", []), data.get("relationships", []))
 
@@ -258,10 +263,11 @@ class ComprehensiveExtractor:
             "Compare this document content with the extracted entities to identify any MISSING critical information."\
             " Return analysis as JSON."
         )
-        query = validation_prompt + f"\nDocument content: {document_content[:3000]}\nExtracted entities: {json.dumps(extracted_entities)[:1000]}"
+        query = validation_prompt + f"\nExtracted entities: {json.dumps(extracted_entities)[:1000]}"
         response = self.claude_extractor.generate(
             query=query,
-            system_prompt="You are an expert at validating information extraction completeness.",
+            contexts=[document_content[:3000]],
+            instruction="You are an expert at validating information extraction completeness.",
         )
         return self.extract_json_from_claude_response(response)
 
