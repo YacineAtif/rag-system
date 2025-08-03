@@ -13,6 +13,7 @@ import re
 from dataclasses import dataclass
 from typing import Any, Dict, Iterable, List, Optional
 
+import nltk
 from backend.qa_models import ClaudeQA
 
 
@@ -36,6 +37,7 @@ class ComprehensiveExtractor:
         self.claude_extractor = claude_extractor or ClaudeQA()
         # default prompt used when no specialised prompt is available
         self.default_extraction_prompt = "Extract entities and relationships as JSON"
+        self._ensure_nltk()
 
     # ------------------------------------------------------------------
     # Helper utilities
@@ -52,6 +54,135 @@ class ComprehensiveExtractor:
             return json.loads(text)
         except Exception:
             return {}
+
+    def _ensure_nltk(self) -> None:
+        """Ensure required NLTK data packages are available."""
+
+        packages = [
+            "punkt",
+            "punkt_tab",
+            "averaged_perceptron_tagger",
+            "averaged_perceptron_tagger_eng",
+            "maxent_ne_chunker",
+            "maxent_ne_chunker_tab",
+            "words",
+        ]
+        for pkg in packages:
+            nltk.download(pkg, quiet=True)
+
+    # ------------------------------------------------------------------
+    # NLTK based entity utilities ---------------------------------------------
+    def _looks_like_organization(
+        self, name: str, prev_token: Optional[str], next_token: Optional[str]
+    ) -> bool:
+        """Return True if the span likely refers to an organisation."""
+
+        keywords = {
+            "university",
+            "institute",
+            "technologies",
+            "technology",
+            "tech",
+            "solutions",
+            "systems",
+            "company",
+            "corporation",
+            "corp",
+            "inc",
+            "ltd",
+            "gmbh",
+            "ab",
+            "group",
+            "centre",
+            "center",
+            "college",
+            "lab",
+            "labs",
+        }
+        known_orgs = {"scania", "smart eye", "viscando technologies", "viscando"}
+
+        lower_name = name.lower()
+        if any(k in lower_name for k in keywords) or lower_name in known_orgs:
+            return True
+        for tok in (prev_token, next_token):
+            if tok and tok.lower() in keywords:
+                return True
+        return False
+
+    def map_nltk_entity_type(self, label: str) -> Optional[str]:
+        """Map NLTK NE labels to the extractor schema."""
+
+        mapping = {
+            "ORGANIZATION": "Organization",
+            "PERSON": "Person",
+            "GPE": "Location",
+            "LOCATION": "Location",
+            "FACILITY": "Organization",
+        }
+        return mapping.get(label)
+
+    def extract_entities_nltk(self, text: str) -> List[Dict[str, Any]]:
+        """Use NLTK's NER to detect entities in ``text``."""
+
+        tokens = nltk.word_tokenize(text)
+        tagged = nltk.pos_tag(tokens)
+        tree = nltk.ne_chunk(tagged)
+        flat = list(tree)
+        entities: List[Dict[str, Any]] = []
+        i = 0
+        while i < len(flat):
+            node = flat[i]
+            if isinstance(node, nltk.Tree):
+                label = node.label()
+                name_tokens = [tok for tok, _ in node.leaves()]
+                j = i + 1
+                # extend span with following capitalised tokens or patterns like
+                # "of <Capitalised>"
+                while j < len(flat):
+                    nxt = flat[j]
+                    if isinstance(nxt, tuple):
+                        word, pos = nxt
+                        if word.lower() in {"of", "for", "the"}:
+                            if j + 1 < len(flat):
+                                nxt2 = flat[j + 1]
+                                if isinstance(nxt2, nltk.Tree) or (
+                                    isinstance(nxt2, tuple)
+                                    and nxt2[0][0].isupper()
+                                ):
+                                    name_tokens.append(word)
+                                    j += 1
+                                    continue
+                            break
+                        if word[0].isupper() and re.match(r"NNP", pos):
+                            name_tokens.append(word)
+                            j += 1
+                            continue
+                        break
+                    elif isinstance(nxt, nltk.Tree):
+                        name_tokens.extend(tok for tok, _ in nxt.leaves())
+                        j += 1
+                        continue
+                    else:
+                        break
+
+                name = " ".join(name_tokens)
+                prev_word = (
+                    flat[i - 1][0] if i > 0 and isinstance(flat[i - 1], tuple) else None
+                )
+                next_word = (
+                    flat[j][0] if j < len(flat) and isinstance(flat[j], tuple) else None
+                )
+                mapped = self.map_nltk_entity_type(label) or ""
+                if mapped != "Organization" and self._looks_like_organization(
+                    name, prev_word, next_word
+                ):
+                    mapped = "Organization"
+                if mapped:
+                    entities.append({"name": name, "type": mapped})
+                i = j
+            else:
+                i += 1
+        return entities
 
     # ------------------------------------------------------------------
     # Pass 1: document structure -------------------------------------------------
@@ -301,17 +432,12 @@ class ComprehensiveExtractor:
     ) -> List[Dict[str, Any]]:
         """Ensure all mentioned organisations appear in the extracted set."""
 
-        org_patterns = [
-            r"\b[A-Z][\w]*(?:\s[A-Z][\w]*)*\s(?:University|Corp|Inc|Ltd|Company|Systems|Technologies)\b",
-            r"(?:University|Corp|Inc|Ltd|Company) of\s[A-Z][\w]*(?:\s[A-Z][\w]*)*",
-            r"\b[A-Z][\w]*(?:\s[A-Z][\w]*)*\s(?:partner|contributor|collaborator|member)\b",
-        ]
-        mentioned: set[str] = set()
-        for pat in org_patterns:
-            for match in re.findall(pat, document_content):
-                mentioned.add(match.strip())
-        extracted = {e.get("name") for e in extracted_entities if e.get("type") == "Organization"}
-        missing = mentioned - extracted
+        nltk_entities = self.extract_entities_nltk(document_content)
+        mentioned = {
+            e["name"] for e in nltk_entities if e.get("type") == "Organization"
+        }
+        all_extracted = {e.get("name") for e in extracted_entities}
+        missing = mentioned - all_extracted
         if missing:
             return self.extract_missing_organizations(missing, document_content)
         return []
