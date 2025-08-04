@@ -1,5 +1,6 @@
 import unittest
 from types import SimpleNamespace
+from typing import Optional
 
 from processing.comprehensive_extractor import ComprehensiveExtractor
 
@@ -11,7 +12,7 @@ class DummyClaude:
         self,
         query: str,
         contexts: list[str],
-        instruction: str | None = None,
+        instruction: Optional[str] = None,
     ):
         if "Analyze this document structure" in query:
             return {"answer": '{}'}

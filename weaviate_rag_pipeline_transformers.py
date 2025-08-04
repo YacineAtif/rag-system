@@ -449,7 +449,7 @@ def create_natural_answer(sentences, query):
 
 
 class Neo4jGraphBuilder:
-    def __init__(self, config: Config | None = None):
+    def __init__(self, config: Optional[Config] = None):
         self.config = config or CONFIG
         self.driver = GraphDatabase.driver(
             self.config.neo4j.uri,

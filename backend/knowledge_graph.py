@@ -1,7 +1,7 @@
 
 from __future__ import annotations
 
-from typing import Any, Callable, Iterable, List, Tuple
+from typing import Any, Callable, Iterable, List, Tuple, Optional
 
 try:  # pragma: no cover - optional dependency
     from neo4j import Driver, GraphDatabase
@@ -85,7 +85,7 @@ from .config import Config
 class KnowledgeGraph:
     """Simple wrapper around a Neo4j database for document entities."""
 
-    def __init__(self, config: Config | None = None) -> None:
+    def __init__(self, config: Optional[Config] = None) -> None:
         self.config = config or Config()
         self.driver = GraphDatabase.driver(
             self.config.neo4j.uri,
