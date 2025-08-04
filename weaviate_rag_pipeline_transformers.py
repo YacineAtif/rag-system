@@ -1272,6 +1272,9 @@ def main():
     text_embedder = SentenceTransformersTextEmbedder(
         model="sentence-transformers/all-MiniLM-L6-v2",
     )
+    # Warm up the text embedder before any usage
+    print("🔥 Warming up text embedder...")
+    text_embedder.warm_up()
     retriever = WeaviateEmbeddingRetriever(document_store=document_store)
 
     # Initialize RAG pipeline with Neo4j integration
@@ -1290,10 +1293,6 @@ def main():
             "How does Viscando's technology integrate with Smart Eye?",
         ]
         pipeline.ood_agent.auto_adjust_threshold(sample_queries)
-
-    # Warm up text embedder for queries
-    print("🔥 Warming up text embedder...")
-    text_embedder.warm_up()
 
     # PHASE 1: Build Knowledge Graph (only when needed)
     if force_rebuild:
