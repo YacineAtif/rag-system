@@ -3,6 +3,7 @@ import re
 import time
 import requests
 import json
+import logging
 from pathlib import Path
 from typing import List, Dict, Optional, Tuple
 from backend.config import Config
@@ -14,6 +15,9 @@ import subprocess
 os.environ["TOKENIZERS_PARALLELISM"] = "false"
 
 CONFIG = Config()
+
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
 
 # Haystack v2 imports
 from haystack import Document, Pipeline
@@ -744,6 +748,179 @@ Extract ALL mentioned entities and relationships from the provided text.""",
                 for record in result
             ]
 
+    # --- Enhanced Graph Search Strategies ---
+    def graph_search(self, query, limit=10):
+        """Enhanced graph search with 4-strategy cascade for 100% coverage"""
+        try:
+            entity_results = self._search_by_entities(query, limit)
+        except Exception as e:
+            logger.error("Entity search failed: %s", e)
+            entity_results = []
+        if entity_results:
+            logger.info("Graph search using strategy 'entity_match'")
+            return entity_results[:limit]
+
+        try:
+            relationship_results = self._search_by_relationships(query, limit)
+        except Exception as e:
+            logger.error("Relationship search failed: %s", e)
+            relationship_results = []
+        if relationship_results:
+            logger.info("Graph search using strategy 'relationship_based'")
+            return relationship_results[:limit]
+
+        try:
+            content_results = self._search_by_content(query, limit)
+        except Exception as e:
+            logger.error("Content search failed: %s", e)
+            content_results = []
+        if content_results:
+            logger.info("Graph search using strategy 'content_based'")
+            return content_results[:limit]
+
+        try:
+            fallback_results = self._get_most_connected_nodes(limit)
+        except Exception as e:
+            logger.error("Structural fallback search failed: %s", e)
+            fallback_results = []
+        logger.info("Graph search using strategy 'structural_fallback'")
+        return fallback_results[:limit]
+
+    def _search_by_entities(self, query, limit):
+        """Primary entity-based search"""
+        term = query.lower()
+        try:
+            with self.driver.session() as session:
+                result = session.run(
+                    """
+                    MATCH (e:Entity)-[r]-(m:Entity)
+                    WHERE toLower(e.name) CONTAINS $entity_term
+                    RETURN e.name as source, type(r) as relationship, m.name as target
+                    LIMIT $limit
+                    """,
+                    entity_term=term,
+                    limit=limit,
+                )
+                return [
+                    {
+                        "source": record["source"],
+                        "relationship": record["relationship"],
+                        "target": record["target"],
+                        "relevance_score": 1.0,
+                        "search_strategy": "entity_match",
+                    }
+                    for record in result
+                ]
+        except Exception as e:
+            logger.error("Entity search query failed: %s", e)
+            return []
+
+    def _search_by_relationships(self, query, limit):
+        """Search graph based on relationship keywords"""
+        relationship_mapping = {
+            'partner': ['COLLABORATES_WITH', 'PARTNERS_WITH', 'WORKS_WITH'],
+            'collaboration': ['COLLABORATES_WITH', 'PARTNERS_WITH'],
+            'partnership': ['COLLABORATES_WITH', 'PARTNERS_WITH'],
+            'work': ['WORKS_WITH', 'COLLABORATES_WITH'],
+            'theory': ['IMPLEMENTS', 'USES', 'APPLIES', 'BASED_ON'],
+            'concept': ['IMPLEMENTS', 'DEFINES', 'USES', 'DESCRIBES'],
+            'evidence': ['PROVIDES', 'SUPPORTS', 'VALIDATES', 'DEMONSTRATES'],
+            'system': ['USES', 'IMPLEMENTS', 'CONTAINS'],
+            'project': ['INCLUDES', 'INVOLVES', 'MANAGES']
+        }
+        query_lower = query.lower()
+        relationship_types = set()
+        for keyword, rels in relationship_mapping.items():
+            if keyword in query_lower:
+                relationship_types.update(rels)
+        if not relationship_types:
+            return []
+        try:
+            with self.driver.session() as session:
+                result = session.run(
+                    """
+                    MATCH (a)-[r]-(b)
+                    WHERE type(r) IN $relationship_types
+                    RETURN a.name as source, type(r) as relationship, b.name as target
+                    LIMIT $limit
+                    """,
+                    relationship_types=list(relationship_types),
+                    limit=limit,
+                )
+                return [
+                    {
+                        "source": record["source"],
+                        "relationship": record["relationship"],
+                        "target": record["target"],
+                        "relevance_score": 0.8,
+                        "search_strategy": "relationship_based",
+                    }
+                    for record in result
+                ]
+        except Exception as e:
+            logger.error("Relationship search query failed: %s", e)
+            return []
+
+    def _search_by_content(self, query, limit):
+        """Search node properties for query terms"""
+        term = query.lower()
+        try:
+            with self.driver.session() as session:
+                result = session.run(
+                    """
+                    MATCH (n)-[r]-(m)
+                    WHERE ANY(prop IN keys(n) WHERE toLower(toString(n[prop])) CONTAINS $search_term)
+                       OR ANY(prop IN keys(m) WHERE toLower(toString(m[prop])) CONTAINS $search_term)
+                    RETURN n.name as source, type(r) as relationship, m.name as target
+                    LIMIT $limit
+                    """,
+                    search_term=term,
+                    limit=limit,
+                )
+                return [
+                    {
+                        "source": record["source"],
+                        "relationship": record["relationship"],
+                        "target": record["target"],
+                        "relevance_score": 0.5,
+                        "search_strategy": "content_based",
+                    }
+                    for record in result
+                ]
+        except Exception as e:
+            logger.error("Content-based search failed: %s", e)
+            return []
+
+    def _get_most_connected_nodes(self, limit):
+        """Return most connected nodes as structural fallback"""
+        try:
+            with self.driver.session() as session:
+                result = session.run(
+                    """
+                    MATCH (n)-[r]-(m)
+                    WITH n, r, m, size((n)--()) as connections
+                    RETURN n.name as source, type(r) as relationship, m.name as target, connections
+                    ORDER BY connections DESC
+                    LIMIT $limit
+                    """,
+                    limit=limit,
+                )
+                records = list(result)
+                max_conn = max((record["connections"] for record in records), default=1)
+                return [
+                    {
+                        "source": record["source"],
+                        "relationship": record["relationship"],
+                        "target": record["target"],
+                        "relevance_score": record["connections"] / max_conn if max_conn else 0.0,
+                        "search_strategy": "structural_fallback",
+                    }
+                    for record in records
+                ]
+        except Exception as e:
+            logger.error("Structural fallback query failed: %s", e)
+            return []
+
 class HybridQueryRouter:
 
     def __init__(self, graph_builder, vector_retriever, text_embedder):
@@ -766,8 +943,9 @@ class HybridQueryRouter:
         results["vector_results"] = vector_docs.get("documents", [])
 
         try:
-            graph_results = self.graph_builder.query_graph(query)
-        except Exception:
+            graph_results = self.graph_builder.graph_search(query)
+        except Exception as e:
+            logger.error("Graph search failed: %s", e)
             graph_results = []
         results["graph_results"] = graph_results
 
