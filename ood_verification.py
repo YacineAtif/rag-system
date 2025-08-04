@@ -8,13 +8,27 @@ from sentence_transformers import util
 
 
 logger = logging.getLogger(__name__)
+if not logger.handlers:
+    handler = logging.StreamHandler()
+    formatter = logging.Formatter(
+        "%(asctime)s %(levelname)s %(name)s: %(message)s"
+    )
+    handler.setFormatter(formatter)
+    logger.addHandler(handler)
+logger.setLevel(logging.DEBUG)
 
 
 class OODVerificationAgent:
     """Agent that performs out-of-domain verification for queries."""
 
     def __init__(self, config, neo4j_driver, text_embedder, document_store, text_processor):
-        default = SimpleNamespace(enabled=False, similarity_threshold=0.35, min_neo4j_relations=1)
+        default = SimpleNamespace(
+            enabled=False,
+            similarity_threshold=0.25,
+            similarity_check_enabled=True,
+            min_neo4j_relations=1,
+            domain_keywords=[],
+        )
         self.config = config
         self.ood_config = getattr(config, "ood", default)
 
@@ -23,6 +37,7 @@ class OODVerificationAgent:
         self.document_store = document_store
         self.text_processor = text_processor
         self.domain_centroid = self._compute_domain_centroid()
+        self.domain_keywords = getattr(self.ood_config, "domain_keywords", [])
 
     def _compute_domain_centroid(self):
         """Compute average embedding of all documents as domain centroid."""
@@ -45,6 +60,9 @@ class OODVerificationAgent:
 
     def embedding_similarity_check(self, query: str) -> bool:
         """Check if query is in-domain based on embedding similarity."""
+        if not getattr(self.ood_config, "similarity_check_enabled", True):
+            logger.debug("Similarity check disabled; allowing query")
+            return True
 
         if self.domain_centroid is None:
             return True
@@ -60,7 +78,7 @@ class OODVerificationAgent:
             print(f"⚠️ Embedding check failed: {e}")
             return True
 
-        threshold = getattr(self.ood_config, "similarity_threshold", 0.35)
+        threshold = getattr(self.ood_config, "similarity_threshold", 0.25)
         logger.debug(
             "Embedding similarity %.3f (threshold %.2f) for query '%s'",
             similarity,
@@ -71,6 +89,14 @@ class OODVerificationAgent:
             logger.debug("Rejecting query due to low similarity score")
             return False
         return True
+
+    def keyword_whitelist_check(self, query: str) -> bool:
+        """Allow queries containing domain-specific keywords."""
+
+        query_lower = query.lower()
+        matches = [kw for kw in self.domain_keywords if kw.lower() in query_lower]
+        logger.debug("Keyword whitelist matches: %s", matches)
+        return bool(matches)
 
     def neo4j_knowledge_check(self, query: str) -> bool:
         """Verify that entities exist in the knowledge graph."""
@@ -116,10 +142,26 @@ class OODVerificationAgent:
             logger.debug("OOD verification disabled; allowing query")
             return True
         try:
-            if not self.embedding_similarity_check(query):
-                logger.debug("Query rejected during embedding similarity check")
-                return False
+            if getattr(self.ood_config, "similarity_check_enabled", True):
+                if not self.embedding_similarity_check(query):
+                    if self.keyword_whitelist_check(query):
+                        logger.debug(
+                            "Allowing query based on keyword whitelist after similarity check"
+                        )
+                    else:
+                        logger.debug(
+                            "Query rejected during embedding similarity check"
+                        )
+                        return False
+            else:
+                logger.debug("Similarity check skipped by configuration")
+
             result = self.neo4j_knowledge_check(query)
+            if not result and self.keyword_whitelist_check(query):
+                logger.debug(
+                    "Allowing query based on keyword whitelist after entity check"
+                )
+                result = True
             if not result:
                 logger.debug("Query rejected during entity verification")
             return result

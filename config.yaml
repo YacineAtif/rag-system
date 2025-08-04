@@ -58,5 +58,8 @@ hardware:
 
 ood:
   enabled: true
-  similarity_threshold: 0.35
+  similarity_threshold: 0.25
+  similarity_check_enabled: true
+  domain_keywords:
+    - evidence theory
   min_neo4j_relations: 1
