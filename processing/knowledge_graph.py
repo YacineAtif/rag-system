@@ -33,6 +33,11 @@ def _graph_query_weight(query: str) -> float:
     return 1.5 if any(k in q for k in graph_keywords) else 1.0
 
 
+def _classify_query(query: str) -> str:
+    """Classify a query as 'graph' or 'vector' based on heuristic weight."""
+    return "graph" if _graph_query_weight(query) > 1.0 else "vector"
+
+
 def _extract_entity_name(query: str) -> str:
     """Extract a probable entity name from a natural language query."""
     patterns = [
@@ -46,6 +51,9 @@ def _extract_entity_name(query: str) -> str:
         r"what is(?: an?| the)? (.+)",
         r"who is(?: the)? (.+)",
         r"where is(?: the)? (.+)",
+        r"when is(?: the)? (.+)",
+        r"which organization(?: is| was| did| does| has)? (.+)",
+        r"how does (.+?) work",
         r"how does(?: the)? (.+?) relate to (.+)",
     ]
     for pattern in patterns:
