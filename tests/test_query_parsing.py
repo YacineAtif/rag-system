@@ -28,6 +28,25 @@ def test_extract_entity_name_preposition():
     assert _extract_entity_name("how is applied in I2Connect") == "I2Connect"
 
 
+
+def test_extract_entity_name_who_is():
+    assert _extract_entity_name("who is Alan Turing?") == "Alan Turing"
+
+
+def test_extract_entity_name_where_is():
+    text = "where is the University of Skövde?"
+    assert _extract_entity_name(text) == "University of Skövde"
+
+
+def test_extract_entity_name_how_does_relate():
+    text = "how does the University of Skövde relate to Smart Eye?"
+    assert _extract_entity_name(text) == "University of Skövde"
+
+
+def test_classify_role_as_graph():
+    assert _classify_query("what is Smart Eye role?") == "graph"
+
 def test_graph_query_weight_role_question():
     assert _graph_query_weight("what is Smart Eye role?") > 1.0
+
 
