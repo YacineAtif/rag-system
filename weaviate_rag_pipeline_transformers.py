@@ -11,6 +11,7 @@ from backend.qa_models import ClaudeQA
 from backend.llm_generator import LLMGenerator
 from neo4j import GraphDatabase
 import subprocess
+from ood_verification import OODVerificationAgent
 
 os.environ["TOKENIZERS_PARALLELISM"] = "false"
 
@@ -286,22 +287,26 @@ class TextProcessor:
         return re.split(r"(?<=[.!?])\s+(?=[A-Z0-9])", text)
 
     def extract_entities(self, text: str) -> List[str]:
+        """Enhanced entity extraction with domain awareness"""
         cleaned = self.clean_text(text, strategy="preserve_structure")
-        bullets = re.findall(r"^[\-*+]\s*(.+)", cleaned, flags=re.MULTILINE)
-        headings = re.findall(r"^#+\s*(.+)", cleaned, flags=re.MULTILINE)
-        capitalized = re.findall(r"\b([A-Z][A-Za-z0-9&]*(?:\s+[A-Z][A-Za-z0-9&]*){0,3})", cleaned)
-        names = bullets + headings + capitalized
+        entities = set()
 
-        seen = set()
-        unique = []
-        for name in names:
-            n = name.strip()
-            if n:
-                l = n.lower()
-                if l not in seen:
-                    seen.add(l)
-                    unique.append(n)
-        return unique
+        # Proper nouns (capitalized phrases)
+        entities.update(re.findall(r"\b[A-Z][a-z]+(?:\s+[A-Z][a-z]+)+\b", cleaned))
+
+        # Acronyms (all caps)
+        entities.update(re.findall(r"\b[A-Z]{2,}\b", cleaned))
+
+        # Domain-specific patterns
+        entities.update(
+            re.findall(r"\b(?:system|project|initiative|platform)\s+[\w-]+\b", cleaned, re.IGNORECASE)
+        )
+
+        # Quoted phrases
+        entities.update(re.findall(r'"(.*?)"', cleaned))
+
+        common_words = {"the", "and", "for", "with", "this", "that"}
+        return [e for e in entities if e and e.lower() not in common_words]
 
     def preserve_context_formatting(self, text: str) -> str:
         text = re.sub(r"\r\n", "\n", text)
@@ -1015,6 +1020,14 @@ class RAGPipeline:
         # Add Neo4j integration
         self.graph_builder = Neo4jGraphBuilder(CONFIG)
         self.hybrid_router = HybridQueryRouter(self.graph_builder, self.retriever, self.text_embedder)
+        self.text_processor = TextProcessor()
+        self.ood_agent = OODVerificationAgent(
+            config=CONFIG,
+            neo4j_driver=self.graph_builder.driver,
+            text_embedder=text_embedder,
+            document_store=document_store,
+            text_processor=self.text_processor
+        )
 
     def get_document_fingerprint(self):
         """Generate fingerprint of all documents to detect changes"""
@@ -1165,12 +1178,16 @@ class RAGPipeline:
 
     def query_with_graph(self, query):
         """Phase 2: Hybrid query using both vector search and graph traversal"""
+        if not self.ood_agent.verify(query):
+            return {
+                "answer": "I don't have information about this topic.",
+                "vector_results": 0,
+                "graph_results": 0
+            }
+
         print("🔍 Phase 2: Hybrid retrieval (Vector + Graph)...")
 
-        # Route query through hybrid system
         hybrid_results = self.hybrid_router.hybrid_retrieve(query)
-
-        # Synthesize final answer
         answer = self.hybrid_router.synthesize_answer(query, hybrid_results)
 
         return {
@@ -1255,6 +1272,16 @@ def main():
 
     # Intelligent document processing
     pipeline.process_documents_intelligently()
+
+    # Update OOD centroid and adjust threshold using sample queries
+    pipeline.ood_agent.domain_centroid = pipeline.ood_agent._compute_domain_centroid()
+    if CONFIG.get("ood", {}).get("enabled", True):
+        sample_queries = [
+            "What is Project Orion?",
+            "Explain Scania's role in ADAS development",
+            "How does Viscando's technology integrate with Smart Eye?"
+        ]
+        pipeline.ood_agent.auto_adjust_threshold(sample_queries)
 
     # Warm up text embedder for queries
     print("🔥 Warming up text embedder...")
