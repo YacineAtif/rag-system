@@ -199,14 +199,6 @@ class OODVerificationAgent:
 
         setattr(self.ood_config, "similarity_threshold", new_threshold)
         print(f"🔧 Auto-adjusted similarity threshold to {new_threshold:.2f}")
-
-
-        setattr(self.ood_config, "similarity_threshold", new_threshold)
-        print(f"🔧 Auto-adjusted similarity threshold to {new_threshold:.2f}")
-
         self.config.ood.similarity_threshold = new_threshold
-        print(
-            f"\ud83d\udd27 Auto-adjusted similarity threshold to {new_threshold:.2f}"
-        )
 
 
