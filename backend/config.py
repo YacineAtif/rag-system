@@ -105,8 +105,10 @@ class LoggingConfig:
 class OODConfig:
     """Out-of-domain verification settings."""
     enabled: bool = False
-    similarity_threshold: float = 0.65
+    similarity_threshold: float = 0.25
+    similarity_check_enabled: bool = True
     min_neo4j_relations: int = 1
+    domain_keywords: List[str] = field(default_factory=list)
 
 
 class Config:

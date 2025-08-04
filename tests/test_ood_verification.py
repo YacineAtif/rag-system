@@ -74,7 +74,13 @@ class DummyDriver:
 class TestOODVerification(unittest.TestCase):
     def _agent(self, text_embedder=None, text_processor=None, driver=None):
         cfg = SimpleNamespace(
-            ood=SimpleNamespace(enabled=True, similarity_threshold=0.35, min_neo4j_relations=1)
+            ood=SimpleNamespace(
+                enabled=True,
+                similarity_threshold=0.25,
+                similarity_check_enabled=True,
+                min_neo4j_relations=1,
+                domain_keywords=["evidence theory"],
+            )
         )
         text_embedder = text_embedder or DummyTextEmbedder()
         text_processor = text_processor or DummyTextProcessor()
@@ -104,6 +110,33 @@ class TestOODVerification(unittest.TestCase):
     def test_reject_low_similarity(self):
         agent = self._agent(text_embedder=OODTextEmbedder())
         self.assertFalse(agent.verify("nonsense"))
+
+    def test_keyword_whitelist_fallback(self):
+        agent = self._agent(
+            text_embedder=OODTextEmbedder(),
+            text_processor=UnknownEntityTextProcessor(),
+            driver=DummyDriver(has_relations=False),
+        )
+        self.assertTrue(agent.verify("what is evidence theory?"))
+
+    def test_similarity_check_optional(self):
+        cfg = SimpleNamespace(
+            ood=SimpleNamespace(
+                enabled=True,
+                similarity_threshold=0.25,
+                similarity_check_enabled=False,
+                min_neo4j_relations=1,
+                domain_keywords=["evidence theory"],
+            )
+        )
+        agent = OODVerificationAgent(
+            cfg,
+            DummyDriver(),
+            OODTextEmbedder(),
+            DummyStore(),
+            DummyTextProcessor(),
+        )
+        self.assertTrue(agent.verify("random"))
 
 
 if __name__ == "__main__":
