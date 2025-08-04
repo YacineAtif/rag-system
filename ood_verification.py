@@ -3,6 +3,10 @@ import torch
 
 from types import SimpleNamespace
 
+
+from types import SimpleNamespace
+
+
 from typing import List
 from sentence_transformers import util
 
@@ -14,7 +18,13 @@ class OODVerificationAgent:
         self.config = config
         self.ood_config = getattr(config, "ood", default)
 
+
+        default = SimpleNamespace(enabled=False, similarity_threshold=0.65, min_neo4j_relations=1)
         self.config = config
+        self.ood_config = getattr(config, "ood", default)
+
+        self.config = config
+
 
         self.neo4j_driver = neo4j_driver
         self.text_embedder = text_embedder
@@ -38,6 +48,7 @@ class OODVerificationAgent:
             return None
         return np.mean(embeddings, axis=0).astype(np.float32)
 
+
         all_docs = self.document_store.filter_documents()
         if not all_docs:
             return None
@@ -47,10 +58,12 @@ class OODVerificationAgent:
         return np.mean(embeddings, axis=0)
 
 
+
     def embedding_similarity_check(self, query: str) -> bool:
         """Check if query is in domain embedding space"""
         if self.domain_centroid is None:
             return True
+
 
         try:
             result = self.text_embedder.run(text=query)
@@ -64,6 +77,7 @@ class OODVerificationAgent:
             return True
         threshold = getattr(self.ood_config, "similarity_threshold", 0.65)
 
+
         result = self.text_embedder.run(text=query)
         query_embedding = result["embedding"]
         similarity = util.pytorch_cos_sim(
@@ -71,6 +85,7 @@ class OODVerificationAgent:
             torch.tensor(self.domain_centroid)
         ).item()
         threshold = self.config["ood"].get("similarity_threshold", 0.65)
+
 
         return similarity >= threshold
 
@@ -103,6 +118,7 @@ class OODVerificationAgent:
             print(f"⚠️ Neo4j check failed: {e}")
             return True
 
+
         entities = self.text_processor.extract_entities(query)
         if not entities:
             return False
@@ -122,6 +138,7 @@ class OODVerificationAgent:
                 if result.single()["has_relations"]:
                     return True
 
+
         return False
 
     def verify(self, query: str) -> bool:
@@ -137,11 +154,13 @@ class OODVerificationAgent:
             print(f"⚠️ OOD verification error: {e}")
             return True
 
+
         if not self.config.get("ood", {}).get("enabled", True):
             return True
         if not self.embedding_similarity_check(query):
             return False
         return self.neo4j_knowledge_check(query)
+
 
 
     def auto_adjust_threshold(self, sample_queries: List[str]):
@@ -162,6 +181,7 @@ class OODVerificationAgent:
             except Exception as e:
                 print(f"⚠️ Threshold adjustment failed for query '{query}': {e}")
 
+
             result = self.text_embedder.run(text=query)
             query_embedding = result["embedding"]
             similarity = util.pytorch_cos_sim(
@@ -169,6 +189,7 @@ class OODVerificationAgent:
                 torch.tensor(self.domain_centroid)
             ).item()
             similarities.append(similarity)
+
 
         if not similarities:
             return
@@ -179,8 +200,13 @@ class OODVerificationAgent:
         setattr(self.ood_config, "similarity_threshold", new_threshold)
         print(f"🔧 Auto-adjusted similarity threshold to {new_threshold:.2f}")
 
+
+        setattr(self.ood_config, "similarity_threshold", new_threshold)
+        print(f"🔧 Auto-adjusted similarity threshold to {new_threshold:.2f}")
+
         self.config["ood"]["similarity_threshold"] = new_threshold
         print(
             f"\ud83d\udd27 Auto-adjusted similarity threshold to {new_threshold:.2f}"
         )
+
 

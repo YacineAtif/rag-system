@@ -16,6 +16,10 @@ from ood_verification import OODVerificationAgent
 from types import SimpleNamespace
 
 
+from types import SimpleNamespace
+
+
+
 os.environ["TOKENIZERS_PARALLELISM"] = "false"
 
 CONFIG = Config()
@@ -1279,9 +1283,13 @@ def main():
     # Update OOD centroid and adjust threshold using sample queries
     pipeline.ood_agent.domain_centroid = pipeline.ood_agent._compute_domain_centroid()
 
+    if CONFIG.ood.enabled:
+
+
     if getattr(CONFIG, "ood", SimpleNamespace(enabled=False)).enabled:
 
     if CONFIG.get("ood", {}).get("enabled", True):
+
 
         sample_queries = [
             "What is Project Orion?",
