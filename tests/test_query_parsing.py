@@ -16,6 +16,11 @@ def test_extract_entity_name_partners_question():
     assert _extract_entity_name(text) == "Smart Eye"
 
 
+def test_extract_entity_name_partnerships_does_have():
+    text = "what partnerships does Scania have"
+    assert _extract_entity_name(text) == "Scania"
+
+
 def test_extract_entity_name_direct():
     assert _extract_entity_name("University of Skövde") == "University of Skövde"
 
