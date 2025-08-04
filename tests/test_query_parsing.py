@@ -1,6 +1,10 @@
 """Tests for natural language query parsing for the knowledge graph."""
 
-from processing.knowledge_graph import _extract_entity_name, _graph_query_weight
+from processing.knowledge_graph import (
+    _classify_query,
+    _extract_entity_name,
+    _graph_query_weight,
+)
 
 
 def test_extract_entity_name_role_question():
@@ -38,9 +42,22 @@ def test_extract_entity_name_where_is():
     assert _extract_entity_name(text) == "University of Skövde"
 
 
+def test_extract_entity_name_when_is():
+    assert _extract_entity_name("when is the conference?") == "conference"
+
+
+def test_extract_entity_name_which_organization():
+    text = "which organization developed the Transformer model?"
+    assert _extract_entity_name(text) == "developed the Transformer model"
+
+
 def test_extract_entity_name_how_does_relate():
     text = "how does the University of Skövde relate to Smart Eye?"
     assert _extract_entity_name(text) == "University of Skövde"
+
+
+def test_extract_entity_name_how_does_work():
+    assert _extract_entity_name("how does blockchain work?") == "blockchain"
 
 
 def test_classify_role_as_graph():

@@ -16,17 +16,14 @@ class TestKnowledgeGraph(unittest.TestCase):
         mock_driver = Mock()
         mock_driver.session.return_value = mock_context
 
-        triples = [("Alice", "knows", "Bob")]
+        triples = [("Alice", "knows", "Bob"), ("Alice", "knows", "Carol")]
         build_knowledge_graph(triples, mock_driver)
 
-        self.assertIn(
-            call("MERGE (a:Entity {name: $name})", name="Alice"),
-            mock_session.run.call_args_list,
-        )
-        self.assertIn(
-            call("MERGE (b:Entity {name: $name})", name="Bob"),
-            mock_session.run.call_args_list,
-        )
+        merge_calls = [c for c in mock_session.run.call_args_list if c.args[0].startswith("MERGE (a:Entity")]
+        self.assertEqual(len(merge_calls), 3)
+        self.assertIn(call("MERGE (a:Entity {name: $name})", name="Alice"), merge_calls)
+        self.assertIn(call("MERGE (a:Entity {name: $name})", name="Bob"), merge_calls)
+        self.assertIn(call("MERGE (a:Entity {name: $name})", name="Carol"), merge_calls)
         self.assertTrue(
             any("MERGE (a)-[:KNOWS]->(b)" in c.args[0] for c in mock_session.run.call_args_list)
         )
@@ -51,9 +48,11 @@ class TestKnowledgeGraph(unittest.TestCase):
 
     def test_hybrid_retrieval_merge(self):
         mock_driver = Mock()
+        vector_search = Mock(return_value=["Y", "Z"])
         with patch("backend.knowledge_graph.query_knowledge_graph", return_value=["X", "Y"]):
-            results = hybrid_retrieval("query", ["Y", "Z"], mock_driver, top_k=10)
+            results = hybrid_retrieval("query", mock_driver, vector_search, top_k=10)
         self.assertEqual(results, ["X", "Y", "Z"])
+        vector_search.assert_called_once_with("query")
 
 
 if __name__ == "__main__":

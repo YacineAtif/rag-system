@@ -1,7 +1,7 @@
 
 from __future__ import annotations
 
-from typing import Any, Iterable, List, Tuple
+from typing import Any, Callable, Iterable, List, Tuple
 
 try:  # pragma: no cover - optional dependency
     from neo4j import Driver, GraphDatabase
@@ -15,11 +15,17 @@ except Exception:  # pragma: no cover
 
 
 def build_knowledge_graph(triples: List[Tuple[str, str, str]], driver: Driver) -> None:
-    """Create nodes and relationships in Neo4j from triples."""
+    """Create nodes and relationships in Neo4j from triples.
+
+    Entities are merged first to ensure comprehensive coverage and avoid
+    duplicate creation when multiple triples reference the same name.
+    """
     with driver.session() as session:
+        entities = {subj for subj, _, obj in triples} | {obj for _, _, obj in triples}
+        for name in entities:
+            session.run("MERGE (a:Entity {name: $name})", name=name)
+
         for subj, rel, obj in triples:
-            session.run("MERGE (a:Entity {name: $name})", name=subj)
-            session.run("MERGE (b:Entity {name: $name})", name=obj)
             session.run(
                 "MATCH (a:Entity {name: $subj}) "
                 "MATCH (b:Entity {name: $obj}) "
@@ -39,10 +45,23 @@ def query_knowledge_graph(entity: str, driver: Driver) -> List[str]:
         return [record["name"] for record in result]
 
 
-def hybrid_retrieval(query: str, vector_results: List[str], driver: Driver, top_k: int = 5) -> List[str]:
-    """Combine graph query results with vector search results and deduplicate."""
+def hybrid_retrieval(
+    query: str,
+    driver: Driver,
+    vector_search: Callable[[str], List[str]],
+    top_k: int = 5,
+) -> List[str]:
+    """Retrieve related nodes and vector search results for a query.
+
+    Both the knowledge graph and the vector index are queried and the
+    resulting contexts are merged while preserving order and removing
+    duplicates.
+    """
+
     graph_results = query_knowledge_graph(query, driver)
-    combined = []
+    vector_results = vector_search(query)
+
+    combined: List[str] = []
     for item in graph_results + vector_results:
         if item not in combined:
             combined.append(item)
