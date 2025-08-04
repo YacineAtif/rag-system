@@ -881,8 +881,8 @@ Extract ALL mentioned entities and relationships from the provided text.""",
                 result = session.run(
                     """
                     MATCH (n)-[r]-(m)
-                    WHERE ANY(prop IN keys(n) WHERE toLower(toString(n[prop])) CONTAINS $search_term)
-                       OR ANY(prop IN keys(m) WHERE toLower(toString(m[prop])) CONTAINS $search_term)
+                    WHERE ANY(prop IN keys(n) WHERE ANY(val IN (CASE WHEN n[prop] IS LIST THEN n[prop] ELSE [n[prop]] END) WHERE toLower(toString(val)) CONTAINS $search_term))
+                       OR ANY(prop IN keys(m) WHERE ANY(val IN (CASE WHEN m[prop] IS LIST THEN m[prop] ELSE [m[prop]] END) WHERE toLower(toString(val)) CONTAINS $search_term))
                     RETURN n.name as source, type(r) as relationship, m.name as target
                     LIMIT $limit
                     """,
@@ -910,7 +910,7 @@ Extract ALL mentioned entities and relationships from the provided text.""",
                 result = session.run(
                     """
                     MATCH (n)-[r]-(m)
-                    WITH n, r, m, size((n)--()) as connections
+                    WITH n, r, m, COUNT { (n)--() } AS connections
                     RETURN n.name as source, type(r) as relationship, m.name as target, connections
                     ORDER BY connections DESC
                     LIMIT $limit
