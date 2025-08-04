@@ -58,5 +58,5 @@ hardware:
 
 ood:
   enabled: true
-  similarity_threshold: 0.65
+  similarity_threshold: 0.35
   min_neo4j_relations: 1

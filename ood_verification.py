@@ -1,3 +1,4 @@
+import logging
 import numpy as np
 import torch
 from types import SimpleNamespace
@@ -6,11 +7,14 @@ from typing import List
 from sentence_transformers import util
 
 
+logger = logging.getLogger(__name__)
+
+
 class OODVerificationAgent:
     """Agent that performs out-of-domain verification for queries."""
 
     def __init__(self, config, neo4j_driver, text_embedder, document_store, text_processor):
-        default = SimpleNamespace(enabled=False, similarity_threshold=0.65, min_neo4j_relations=1)
+        default = SimpleNamespace(enabled=False, similarity_threshold=0.35, min_neo4j_relations=1)
         self.config = config
         self.ood_config = getattr(config, "ood", default)
 
@@ -56,8 +60,17 @@ class OODVerificationAgent:
             print(f"⚠️ Embedding check failed: {e}")
             return True
 
-        threshold = getattr(self.ood_config, "similarity_threshold", 0.65)
-        return similarity >= threshold
+        threshold = getattr(self.ood_config, "similarity_threshold", 0.35)
+        logger.debug(
+            "Embedding similarity %.3f (threshold %.2f) for query '%s'",
+            similarity,
+            threshold,
+            query,
+        )
+        if similarity < threshold:
+            logger.debug("Rejecting query due to low similarity score")
+            return False
+        return True
 
     def neo4j_knowledge_check(self, query: str) -> bool:
         """Verify that entities exist in the knowledge graph."""
@@ -66,8 +79,10 @@ class OODVerificationAgent:
             entities = self.text_processor.extract_entities(query)
         except Exception:
             entities = []
+        logger.debug("Extracted entities: %s", entities)
         if not entities:
-            return False
+            logger.debug("No entities found; allowing query")
+            return True
 
         min_relations = getattr(self.ood_config, "min_neo4j_relations", 1)
         try:
@@ -83,23 +98,31 @@ class OODVerificationAgent:
                         name=entity,
                         min_relations=min_relations,
                     )
-                    if result.single()["has_relations"]:
+                    has_relations = result.single()["has_relations"]
+                    logger.debug("Entity '%s' has_relations=%s", entity, has_relations)
+                    if has_relations:
                         return True
         except Exception as e:
             print(f"⚠️ Neo4j check failed: {e}")
             return True
 
+        logger.debug("No entities with required relations found; rejecting query")
         return False
 
     def verify(self, query: str) -> bool:
         """Execute the full verification pipeline."""
 
         if not getattr(self.ood_config, "enabled", False):
+            logger.debug("OOD verification disabled; allowing query")
             return True
         try:
             if not self.embedding_similarity_check(query):
+                logger.debug("Query rejected during embedding similarity check")
                 return False
-            return self.neo4j_knowledge_check(query)
+            result = self.neo4j_knowledge_check(query)
+            if not result:
+                logger.debug("Query rejected during entity verification")
+            return result
         except Exception as e:
             print(f"⚠️ OOD verification error: {e}")
             return True
