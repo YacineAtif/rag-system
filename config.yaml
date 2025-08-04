@@ -55,3 +55,8 @@ logging:
 hardware:
   use_gpu: false
   num_threads: 4
+
+ood:
+  enabled: true
+  similarity_threshold: 0.65
+  min_neo4j_relations: 1
