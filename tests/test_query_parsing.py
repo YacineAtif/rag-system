@@ -1,6 +1,6 @@
 """Tests for natural language query parsing for the knowledge graph."""
 
-from processing.knowledge_graph import _extract_entity_name, _classify_query
+from processing.knowledge_graph import _extract_entity_name, _graph_query_weight
 
 
 def test_extract_entity_name_role_question():
@@ -28,6 +28,7 @@ def test_extract_entity_name_preposition():
     assert _extract_entity_name("how is applied in I2Connect") == "I2Connect"
 
 
+
 def test_extract_entity_name_who_is():
     assert _extract_entity_name("who is Alan Turing?") == "Alan Turing"
 
@@ -44,4 +45,8 @@ def test_extract_entity_name_how_does_relate():
 
 def test_classify_role_as_graph():
     assert _classify_query("what is Smart Eye role?") == "graph"
+
+def test_graph_query_weight_role_question():
+    assert _graph_query_weight("what is Smart Eye role?") > 1.0
+
 

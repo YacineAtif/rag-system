@@ -4,7 +4,7 @@ results with vector search.
 """
 
 import re
-from typing import List, Dict, Any
+from typing import List, Dict, Any, Tuple
 
 try:
     from backend.config import Config
@@ -12,8 +12,14 @@ except Exception:  # pragma: no cover - optional import for tests
     Config = None  # type: ignore
 
 
-def _classify_query(query: str) -> str:
-    """Very small heuristic to decide retrieval strategy."""
+def _graph_query_weight(query: str) -> float:
+    """Estimate how strongly a query relates to graph-style information.
+
+    Returns a simple weight that can be used to boost graph results when the
+    query mentions relationships or partners. The value is >1.0 for graph
+    oriented questions and defaults to 1.0 otherwise.
+    """
+
     q = query.lower()
     graph_keywords = [
         "relationship",
@@ -24,7 +30,7 @@ def _classify_query(query: str) -> str:
         "collaborator",
         "role",
     ]
-    return "graph" if any(k in q for k in graph_keywords) else "vector"
+    return 1.5 if any(k in q for k in graph_keywords) else 1.0
 
 
 def _extract_entity_name(query: str) -> str:
@@ -168,28 +174,36 @@ def _vector_search(query: str, config: Config):
 
 
 def hybrid_retrieval(query: str, config: Config) -> List[str]:
-    """Combine graph traversal with vector search for retrieval."""
-    strategy = _classify_query(query)
-    contexts: List[str] = []
+    """Combine graph traversal with vector search for retrieval.
 
-    if strategy == "graph":
-        try:
-            graph_results = query_knowledge_graph(query, config)
-        except Exception:
-            graph_results = []
-        for item in graph_results:
-            n = item.get("n", {}).get("name", "")
-            m = item.get("m", {}).get("name", "")
-            if n and m:
-                contexts.append(f"{n} -> {m}")
-    
+    Both the knowledge graph and vector index are queried. A lightweight
+    heuristic assigns a weight to graph hits so that callers can prioritize
+    relationship data when appropriate.
+    """
+
+    graph_weight = _graph_query_weight(query)
+    contexts: List[Tuple[float, str]] = []
+
+    try:
+        graph_results = query_knowledge_graph(query, config)
+    except Exception:
+        graph_results = []
+
+    for item in graph_results:
+        n = item.get("n", {}).get("name", "")
+        m = item.get("m", {}).get("name", "")
+        if n and m:
+            contexts.append((graph_weight, f"{n} -> {m}"))
+
     docs = _vector_search(query, config)
     for doc in docs:
         content = getattr(doc, "content", None)
         if content:
-            contexts.append(str(content))
+            contexts.append((1.0, str(content)))
 
-    return contexts
+    # Sort by weight so that graph results can be prioritized when relevant.
+    contexts.sort(key=lambda x: x[0], reverse=True)
+    return [text for _, text in contexts]
 
 """Knowledge graph construction utilities."""
 
