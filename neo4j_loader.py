@@ -3,7 +3,7 @@ from __future__ import annotations
 
 import re
 from pathlib import Path
-from typing import Iterable, Tuple
+from typing import Iterable, Tuple, Optional
 
 from backend.config import Config
 from backend.knowledge_graph import KnowledgeGraph
@@ -30,7 +30,7 @@ def load_documents(folder: Path) -> Iterable[Tuple[str, str]]:
             yield path.name, loaders[path.suffix.lower()](str(path))
 
 
-def build_graph(config: Config | None = None) -> None:
+def build_graph(config: Optional[Config] = None) -> None:
     cfg = config or Config()
     kg = KnowledgeGraph(cfg)
     folder = Path(cfg.documents_folder)
