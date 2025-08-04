@@ -44,6 +44,7 @@ def _extract_entity_name(query: str) -> str:
         r"what is(?: the)? (.+?)'s role",
         r"what is(?: the)? role of (.+)",
         r"what is(?: the)? (.+?) role",
+        r"what partnerships does (.+?) have",
         r"who are(?: the)? partners of (.+)",
         r"who are(?: the)? (.+?)'s partners",
         r"who are(?: the)? (.+?) partners",
@@ -183,7 +184,7 @@ def _vector_search(query: str, config: Config):
     return result.get("retriever", {}).get("documents", [])
 
 
-def hybrid_retrieval(query: str, config: Config) -> List[str]:
+def hybrid_retrieval(query: str, config: Config) -> Dict[str, List[str]]:
     """Combine graph traversal with vector search for retrieval.
 
     Both the knowledge graph and vector index are queried. A lightweight
@@ -192,28 +193,32 @@ def hybrid_retrieval(query: str, config: Config) -> List[str]:
     """
 
     graph_weight = _graph_query_weight(query)
-    contexts: List[Tuple[float, str]] = []
 
     try:
-        graph_results = query_knowledge_graph(query, config)
+        graph_raw = query_knowledge_graph(query, config)
     except Exception:
-        graph_results = []
+        graph_raw = []
 
-    for item in graph_results:
+    graph_results: List[str] = []
+    for item in graph_raw:
         n = item.get("n", {}).get("name", "")
         m = item.get("m", {}).get("name", "")
         if n and m:
-            contexts.append((graph_weight, f"{n} -> {m}"))
+            text = f"{n} -> {m}"
+            if text not in graph_results:
+                graph_results.append(text)
 
     docs = _vector_search(query, config)
+    vector_results: List[str] = []
     for doc in docs:
         content = getattr(doc, "content", None)
-        if content:
-            contexts.append((1.0, str(content)))
+        if content and str(content) not in vector_results:
+            vector_results.append(str(content))
 
-    # Sort by weight so that graph results can be prioritized when relevant.
-    contexts.sort(key=lambda x: x[0], reverse=True)
-    return [text for _, text in contexts]
+    # Sort graph results by weight for potential prioritization later
+    if graph_weight > 1.0:
+        graph_results = graph_results[: config.retrieval.default_top_k]
+    return {"graph_results": graph_results, "vector_results": vector_results}
 
 """Knowledge graph construction utilities."""
 

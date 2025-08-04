@@ -757,19 +757,19 @@ class HybridQueryRouter:
         return any(keyword in query.lower() for keyword in graph_keywords)
 
     def hybrid_retrieve(self, query):
-        """Route query to appropriate retrieval method"""
+        """Retrieve both vector and graph results for any query."""
+
         results = {"vector_results": [], "graph_results": []}
 
-        # Always get vector results
-        # Generate query embedding first
         query_embedding = self.text_embedder.run(text=query)["embedding"]
         vector_docs = self.vector_retriever.run(query_embedding=query_embedding)
         results["vector_results"] = vector_docs.get("documents", [])
 
-        # Get graph results if needed
-        if self.should_use_graph(query):
+        try:
             graph_results = self.graph_builder.query_graph(query)
-            results["graph_results"] = graph_results
+        except Exception:
+            graph_results = []
+        results["graph_results"] = graph_results
 
         return results
 

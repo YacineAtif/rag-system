@@ -51,7 +51,8 @@ class TestKnowledgeGraph(unittest.TestCase):
         vector_search = Mock(return_value=["Y", "Z"])
         with patch("backend.knowledge_graph.query_knowledge_graph", return_value=["X", "Y"]):
             results = hybrid_retrieval("query", mock_driver, vector_search, top_k=10)
-        self.assertEqual(results, ["X", "Y", "Z"])
+        expected = {"graph_results": ["X", "Y"], "vector_results": ["Y", "Z"]}
+        self.assertEqual(results, expected)
         vector_search.assert_called_once_with("query")
 
 

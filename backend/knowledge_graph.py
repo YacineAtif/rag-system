@@ -50,24 +50,32 @@ def hybrid_retrieval(
     driver: Driver,
     vector_search: Callable[[str], List[str]],
     top_k: int = 5,
-) -> List[str]:
+) -> dict[str, List[str]]:
     """Retrieve related nodes and vector search results for a query.
 
-    Both the knowledge graph and the vector index are queried and the
-    resulting contexts are merged while preserving order and removing
-    duplicates.
+    The function now returns a dictionary with separate lists for graph
+    and vector results so callers can reason about the sources
+    independently.
     """
 
-    graph_results = query_knowledge_graph(query, driver)
-    vector_results = vector_search(query)
+    graph_raw = query_knowledge_graph(query, driver)
+    vector_raw = vector_search(query)
 
-    combined: List[str] = []
-    for item in graph_results + vector_results:
-        if item not in combined:
-            combined.append(item)
-        if len(combined) >= top_k:
+    graph_results: List[str] = []
+    for item in graph_raw:
+        if item not in graph_results:
+            graph_results.append(item)
+        if len(graph_results) >= top_k:
             break
-    return combined
+
+    vector_results: List[str] = []
+    for item in vector_raw:
+        if item not in vector_results:
+            vector_results.append(item)
+        if len(vector_results) >= top_k:
+            break
+
+    return {"graph_results": graph_results, "vector_results": vector_results}
 
 """Neo4j based knowledge graph utilities."""
 
