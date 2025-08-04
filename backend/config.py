@@ -101,6 +101,14 @@ class LoggingConfig:
     save_response_analytics: bool = False
 
 
+@dataclass
+class OODConfig:
+    """Out-of-domain verification settings."""
+    enabled: bool = False
+    similarity_threshold: float = 0.65
+    min_neo4j_relations: int = 1
+
+
 class Config:
     """Central configuration management."""
 
@@ -121,6 +129,7 @@ class Config:
         self.query_processing = QueryProcessingConfig()
         self.domain_detection = DomainDetectionConfig()
         self.logging = LoggingConfig()
+        self.ood = OODConfig()
         self.section_priorities = {}
         self.semantic_metadata = {}
 
@@ -154,6 +163,7 @@ class Config:
                 "query_processing": self.query_processing,
                 "domain_detection": self.domain_detection,
                 "logging": self.logging,
+                "ood": self.ood,
             }
 
             for name, obj in config_mappings.items():
