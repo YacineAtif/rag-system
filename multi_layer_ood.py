@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import logging
 import math
+import re
 from dataclasses import dataclass, field
 from typing import Dict, List, Sequence, Tuple, Optional
 
@@ -59,6 +60,7 @@ class ResponseVerificationConfig:
     hallucination_detection_threshold: float = 0.3
     high_confidence_threshold: float = 0.9
     relaxed_hallucination_threshold: float = 0.5
+    source_match_threshold: float = 0.6
 
 
 class QueryAnalyzer:
@@ -202,6 +204,17 @@ class ResponseVerifier:
         self.cfg = config
         self.logger = logging.getLogger(__name__ + ".ResponseVerifier")
 
+    @staticmethod
+    def _tokenize(text: str) -> set[str]:
+        return set(re.findall(r"\w+", text.lower()))
+
+    @classmethod
+    def _jaccard(cls, a: str, b: str) -> float:
+        ta, tb = cls._tokenize(a), cls._tokenize(b)
+        if not ta or not tb:
+            return 0.0
+        return len(ta & tb) / len(ta | tb)
+
     def verify(
         self,
         answer: str,
@@ -212,9 +225,15 @@ class ResponseVerifier:
         signals: Dict[str, float] = {}
 
         answer_l = answer.lower()
-        # Fact checking: ensure some source text appears in answer
+        # Fact checking: ensure semantic overlap with sources
         if self.cfg.enable_fact_checking:
-            matches = sum(1 for s in sources if s and s.lower() in answer_l)
+            threshold = self.cfg.source_match_threshold
+            matches = 0
+            for s in sources:
+                if not s:
+                    continue
+                if self._jaccard(answer_l, s.lower()) >= threshold:
+                    matches += 1
             fact_score = matches / max(len(sources), 1)
         else:
             fact_score = 1.0
