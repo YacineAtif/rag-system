@@ -39,21 +39,30 @@ embedders_stub.SentenceTransformersTextEmbedder = object
 embedders_stub.SentenceTransformersDocumentEmbedder = object
 sys.modules.setdefault("haystack.components.embedders", embedders_stub)
 store_stub = types.ModuleType("haystack_integrations.document_stores.weaviate")
+# Provide minimal stubs for optional integrations
 store_stub.WeaviateDocumentStore = object
 sys.modules.setdefault("haystack_integrations.document_stores.weaviate", store_stub)
 retriever_stub = types.ModuleType("haystack_integrations.components.retrievers.weaviate")
 retriever_stub.WeaviateEmbeddingRetriever = object
 sys.modules.setdefault("haystack_integrations.components.retrievers.weaviate", retriever_stub)
-requests_stub = types.ModuleType("requests")
-def _dummy_get(*a, **kw):
-    class R:
-        status_code = 200
-    return R()
-requests_stub.get = _dummy_get
-sys.modules.setdefault("requests", requests_stub)
-yaml_stub = types.ModuleType("yaml")
-yaml_stub.safe_load = lambda s: {}
-sys.modules.setdefault("yaml", yaml_stub)
+
+# Stub neo4j driver to avoid requiring the real package
+neo4j_stub = types.ModuleType("neo4j")
+class _DummyDriver:
+    def session(self):
+        class _Session:
+            def __enter__(self):
+                return self
+            def __exit__(self, exc_type, exc, tb):
+                pass
+            def run(self, *a, **kw):
+                class _R:
+                    def single(self):
+                        return {"count": 0}
+                return _R()
+        return _Session()
+neo4j_stub.GraphDatabase = types.SimpleNamespace(driver=lambda *a, **kw: _DummyDriver())
+sys.modules.setdefault("neo4j", neo4j_stub)
 
 # Add project root to path
 sys.path.append(str(Path(__file__).parent.parent))
@@ -193,6 +202,60 @@ class TestHybridPipeline(unittest.TestCase):
             cls = QueryClassifier(cfg)
             q_type = cls.classify('Who are the project partners?')
         self.assertEqual(q_type, 'partnership')
+
+    def test_rag_pipeline_snippet_verification(self):
+        from types import SimpleNamespace
+        from weaviate_rag_pipeline_transformers import RAGPipeline
+
+        class DummyNeo4jGraphBuilder:
+            def __init__(self, *a, **kw):
+                pass
+
+        class DummyDoc:
+            def __init__(self, content, score=1.0):
+                self.content = content
+                self.score = score
+                self.meta = {}
+
+        doc_content = (
+            "Artificial intelligence enables machines to perform tasks. "
+            "It is widely used in many applications."
+        )
+
+        with patch(
+            'weaviate_rag_pipeline_transformers.Neo4jGraphBuilder',
+            DummyNeo4jGraphBuilder,
+        ):
+            doc_store = SimpleNamespace(filter_documents=lambda: [])
+            embedder = SimpleNamespace(run=lambda **kw: {"embedding": [0.1]})
+            pipeline = RAGPipeline(doc_store, None, embedder)
+
+        pipeline.hybrid_router = SimpleNamespace(
+            hybrid_retrieve=lambda q: {
+                "vector_results": [DummyDoc(doc_content)],
+                "graph_results": [],
+            },
+            synthesize_answer=lambda q, res: "Artificial intelligence enables machines to perform tasks.",
+        )
+
+        with patch.object(
+            pipeline.ood_detector, 'process', return_value={"allow_generation": True}
+        ):
+            with patch.object(
+                pipeline.ood_detector.verifier, 'verify', return_value=(True, {})
+            ) as mock_verify:
+                result = pipeline.query_with_graph("What is AI?")
+
+        self.assertEqual(
+            result["answer"],
+            "Artificial intelligence enables machines to perform tasks.",
+        )
+        called_sources = mock_verify.call_args[0][1]
+        self.assertEqual(
+            called_sources,
+            ["Artificial intelligence enables machines to perform tasks."],
+        )
+        self.assertLess(len(called_sources[0]), len(doc_content))
 
 if __name__ == '__main__':
     unittest.main()

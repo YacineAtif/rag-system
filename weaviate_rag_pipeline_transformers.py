@@ -1264,7 +1264,11 @@ class RAGPipeline:
             }
 
         answer = self.hybrid_router.synthesize_answer(query, hybrid_results)
-        sources = [doc.content for doc in hybrid_results["vector_results"]]
+        sources = []
+        for doc in hybrid_results["vector_results"]:
+            sentences = self.text_processor.extract_quality_sentences(doc.content)
+            snippet = sentences[0] if sentences else doc.content[:200]
+            sources.append(snippet)
         verified, _ = self.ood_detector.verifier.verify(answer, sources, query)
         if not verified:
             answer = "I'm not fully confident about this answer."
