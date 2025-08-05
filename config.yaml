@@ -63,3 +63,44 @@ ood:
   domain_keywords:
     - evidence theory
   min_neo4j_relations: 1
+
+ood_detection:
+  enabled: true
+  # Multi-layered thresholds
+  similarity_threshold: 0.15
+  graph_connectivity_threshold: 0.6
+  context_quality_threshold: 0.7
+  generation_confidence_threshold: 0.8
+
+  # Hierarchical keyword system with weighting
+  keywords:
+    tier_1_critical:
+      core_concepts: ["evidence theory", "dempster shafer", "uncertainty reasoning"]
+      projects: ["i2connect", "concept 1", "simulation framework"]
+      organizations: ["scania", "smart eye", "university of skövde", "viscando"]
+    tier_2_important:
+      technologies: ["driver monitoring", "gaze tracking", "adas", "vehicle sensors"]
+      safety_terms: ["traffic safety", "road safety", "collision avoidance"]
+    tier_3_contextual:
+      general_terms: ["system", "analysis", "monitoring", "detection"]
+
+  # Quality control parameters
+  quality_gates:
+    min_context_relevance: 0.7
+    min_passage_count: 2
+    max_contradiction_score: 0.3
+    min_information_density: 0.6
+
+  # Abstention behavior
+  abstention:
+    enable_informed_refusal: true
+    enable_partial_answers: true
+    enable_clarification_requests: true
+    confidence_explanation: true
+
+# Advanced features
+response_verification:
+  enable_fact_checking: true
+  enable_consistency_validation: true
+  enable_citation_verification: true
+  hallucination_detection_threshold: 0.2
