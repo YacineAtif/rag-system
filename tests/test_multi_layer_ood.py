@@ -97,6 +97,21 @@ class TestMultiLayerOOD(unittest.TestCase):
         )
         self.assertTrue(res.get("response_verified"))
 
+    def test_response_verification_single_match_many_sources(self):
+        res = self.detector.process(
+            query="Explain evidence theory",
+            similarity=0.9,
+            graph_connectivity=0.9,
+            retrieved_relevances=[0.9, 0.9],
+            token_probs=[0.9, 0.9],
+            answer="Evidence theory deals with uncertain information",
+            sources=[
+                "Completely unrelated passage about other topics",
+                "Evidence theory deals with uncertainty",
+            ],
+        )
+        self.assertTrue(res.get("response_verified"))
+
     def test_short_answer_verification(self):
         res = self.detector.process(
             query="Explain evidence theory",
