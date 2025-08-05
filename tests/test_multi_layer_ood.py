@@ -27,6 +27,7 @@ class TestMultiLayerOOD(unittest.TestCase):
             enable_consistency_validation=True,
             enable_citation_verification=True,
             hallucination_detection_threshold=0.3,
+            source_match_threshold=0.5,
         )
         cfg = OODDetectionConfig(
             similarity_threshold=0.1,
@@ -83,6 +84,18 @@ class TestMultiLayerOOD(unittest.TestCase):
             sources=["Evidence theory deals with uncertainty"],
         )
         self.assertFalse(res.get("response_verified"))
+
+    def test_response_verification_paraphrase(self):
+        res = self.detector.process(
+            query="Explain evidence theory",
+            similarity=0.9,
+            graph_connectivity=0.9,
+            retrieved_relevances=[0.9, 0.9],
+            token_probs=[0.9, 0.9],
+            answer="Evidence theory deals with uncertain information",
+            sources=["Evidence theory deals with uncertainty"],
+        )
+        self.assertTrue(res.get("response_verified"))
 
     def test_complex_query_analysis(self):
         analysis = self.detector.query_analyzer.analyze(
