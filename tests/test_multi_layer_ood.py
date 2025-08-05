@@ -30,7 +30,7 @@ class TestMultiLayerOOD(unittest.TestCase):
         )
         cfg = OODDetectionConfig(
             similarity_threshold=0.1,
-            graph_connectivity_threshold=0.1,
+            graph_connectivity_threshold=0.6,
             generation_confidence_threshold=0.5,
             keywords=keywords,
             quality_gates=quality,
@@ -100,6 +100,19 @@ class TestMultiLayerOOD(unittest.TestCase):
             token_probs=[0.25, 0.25, 0.25, 0.25],
         )
         self.assertFalse(res["allow_generation"])
+
+    def test_equal_vector_and_graph_results_pass(self):
+        vector_relevances = [0.8] * 10
+        graph_count = 10
+        graph_connectivity = graph_count / max(len(vector_relevances), 1)
+        res = self.detector.process(
+            query="what is evidence theory?",
+            similarity=0.9,
+            graph_connectivity=graph_connectivity,
+            retrieved_relevances=vector_relevances,
+            token_probs=[0.9, 0.9],
+        )
+        self.assertTrue(res["allow_generation"])
 
     def test_performance_large_relevances(self):
         relevances = [0.9] * 10000
