@@ -56,7 +56,9 @@ class ResponseVerificationConfig:
     enable_fact_checking: bool = True
     enable_consistency_validation: bool = True
     enable_citation_verification: bool = True
-    hallucination_detection_threshold: float = 0.2
+    hallucination_detection_threshold: float = 0.3
+    high_confidence_threshold: float = 0.9
+    relaxed_hallucination_threshold: float = 0.5
 
 
 class QueryAnalyzer:
@@ -201,7 +203,11 @@ class ResponseVerifier:
         self.logger = logging.getLogger(__name__ + ".ResponseVerifier")
 
     def verify(
-        self, answer: str, sources: Sequence[str], query: str
+        self,
+        answer: str,
+        sources: Sequence[str],
+        query: str,
+        confidence: float | None = None,
     ) -> Tuple[bool, Dict[str, float]]:
         signals: Dict[str, float] = {}
 
@@ -233,8 +239,15 @@ class ResponseVerifier:
         hallucination_risk = 1.0 - fact_score
         signals["hallucination_risk"] = hallucination_risk
 
+        threshold = self.cfg.hallucination_detection_threshold
+        if (
+            confidence is not None
+            and confidence >= self.cfg.high_confidence_threshold
+        ):
+            threshold = max(threshold, self.cfg.relaxed_hallucination_threshold)
+
         passed = (
-            hallucination_risk <= self.cfg.hallucination_detection_threshold
+            hallucination_risk <= threshold
             and consistency > 0.0
             and citation_score > 0.0
         )
@@ -284,7 +297,9 @@ class MultiLayerOODDetector:
         }
 
         if answer is not None and sources is not None:
-            verified, verification = self.verifier.verify(answer, sources, query)
+            verified, verification = self.verifier.verify(
+                answer, sources, query, confidence
+            )
             result["response_verified"] = verified
             result["verification_signals"] = verification
 
