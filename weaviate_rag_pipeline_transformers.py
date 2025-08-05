@@ -28,7 +28,7 @@ os.environ["TOKENIZERS_PARALLELISM"] = "false"
 
 CONFIG = Config()
 
-logging.basicConfig(level=logging.INFO)
+logging.basicConfig(level=logging.DEBUG)
 logger = logging.getLogger(__name__)
 
 
@@ -1244,9 +1244,7 @@ class RAGPipeline:
         vector_relevances = [doc.score or 0.0 for doc in hybrid_results["vector_results"]]
         graph_count = len(hybrid_results["graph_results"])
         similarity = self._embedding_similarity(query)
-        graph_connectivity = graph_count / max(
-            graph_count + len(hybrid_results["vector_results"]), 1
-        )
+        graph_connectivity = graph_count / max(len(hybrid_results["vector_results"]), 1)
 
         detection = self.ood_detector.process(
             query=query,
@@ -1255,6 +1253,8 @@ class RAGPipeline:
             retrieved_relevances=vector_relevances,
             token_probs=[0.9],
         )
+
+        logger.debug("Multi-layer OOD detection result: %s", detection)
 
         if not detection["allow_generation"]:
             return {
