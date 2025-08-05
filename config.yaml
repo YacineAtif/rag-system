@@ -102,4 +102,6 @@ ood_detection:
     enable_fact_checking: true
     enable_consistency_validation: true
     enable_citation_verification: true
-    hallucination_detection_threshold: 0.2
+    hallucination_detection_threshold: 0.3
+    high_confidence_threshold: 0.9
+    relaxed_hallucination_threshold: 0.5
