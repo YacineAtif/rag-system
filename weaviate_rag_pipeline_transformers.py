@@ -11,14 +11,18 @@ from backend.qa_models import ClaudeQA
 from backend.llm_generator import LLMGenerator
 from neo4j import GraphDatabase
 import subprocess
-from ood_verification import OODVerificationAgent
-
-from types import SimpleNamespace
-
-
-from types import SimpleNamespace
-
-
+import yaml
+import numpy as np
+import torch
+from sentence_transformers import util
+from multi_layer_ood import (
+    MultiLayerOODDetector,
+    OODDetectionConfig,
+    KeywordTiers,
+    QualityGates,
+    AbstentionConfig,
+    ResponseVerificationConfig,
+)
 
 os.environ["TOKENIZERS_PARALLELISM"] = "false"
 
@@ -26,6 +30,31 @@ CONFIG = Config()
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
+
+
+def load_ood_config() -> OODDetectionConfig:
+    try:
+        with open("config.yaml", "r") as f:
+            data = yaml.safe_load(f).get("ood_detection", {})
+    except Exception:
+        data = {}
+
+    keywords = KeywordTiers(**data.get("keywords", {}))
+    quality = QualityGates(**data.get("quality_gates", {}))
+    abstention = AbstentionConfig(**data.get("abstention", {}))
+    response = ResponseVerificationConfig(**data.get("response_verification", {}))
+
+    return OODDetectionConfig(
+        enabled=data.get("enabled", True),
+        similarity_threshold=data.get("similarity_threshold", 0.15),
+        graph_connectivity_threshold=data.get("graph_connectivity_threshold", 0.6),
+        context_quality_threshold=data.get("context_quality_threshold", 0.7),
+        generation_confidence_threshold=data.get("generation_confidence_threshold", 0.8),
+        keywords=keywords,
+        quality_gates=quality,
+        abstention=abstention,
+        response_verification=response,
+    )
 
 # Haystack v2 imports
 from haystack import Document, Pipeline
@@ -1028,13 +1057,36 @@ class RAGPipeline:
         self.graph_builder = Neo4jGraphBuilder(CONFIG)
         self.hybrid_router = HybridQueryRouter(self.graph_builder, self.retriever, self.text_embedder)
         self.text_processor = TextProcessor()
-        self.ood_agent = OODVerificationAgent(
-            config=CONFIG,
-            neo4j_driver=self.graph_builder.driver,
-            text_embedder=text_embedder,
-            document_store=document_store,
-            text_processor=self.text_processor
-        )
+        self.ood_detector = MultiLayerOODDetector(load_ood_config())
+        self.domain_centroid = self._compute_domain_centroid()
+
+    def _compute_domain_centroid(self):
+        """Compute average embedding of all documents as domain centroid."""
+        try:
+            all_docs = self.document_store.filter_documents()
+        except Exception:
+            return None
+        embeddings = [
+            np.array(doc.embedding, dtype=np.float32)
+            for doc in all_docs
+            if getattr(doc, "embedding", None) is not None
+        ]
+        if not embeddings:
+            return None
+        return np.mean(embeddings, axis=0).astype(np.float32)
+
+    def _embedding_similarity(self, query: str) -> float:
+        if self.domain_centroid is None:
+            return 1.0
+        try:
+            result = self.text_embedder.run(text=query)
+            query_embedding = np.array(result["embedding"], dtype=np.float32)
+            return util.pytorch_cos_sim(
+                torch.tensor(query_embedding, dtype=torch.float32),
+                torch.tensor(self.domain_centroid, dtype=torch.float32),
+            ).item()
+        except Exception:
+            return 1.0
 
     def get_document_fingerprint(self):
         """Generate fingerprint of all documents to detect changes"""
@@ -1185,22 +1237,42 @@ class RAGPipeline:
 
     def query_with_graph(self, query):
         """Phase 2: Hybrid query using both vector search and graph traversal"""
-        if not self.ood_agent.verify(query):
-            return {
-                "answer": "I don't have information about this topic.",
-                "vector_results": 0,
-                "graph_results": 0
-            }
-
         print("🔍 Phase 2: Hybrid retrieval (Vector + Graph)...")
 
         hybrid_results = self.hybrid_router.hybrid_retrieve(query)
+
+        vector_relevances = [doc.score or 0.0 for doc in hybrid_results["vector_results"]]
+        graph_count = len(hybrid_results["graph_results"])
+        similarity = self._embedding_similarity(query)
+        graph_connectivity = graph_count / max(
+            graph_count + len(hybrid_results["vector_results"]), 1
+        )
+
+        detection = self.ood_detector.process(
+            query=query,
+            similarity=similarity,
+            graph_connectivity=graph_connectivity,
+            retrieved_relevances=vector_relevances,
+            token_probs=[0.9],
+        )
+
+        if not detection["allow_generation"]:
+            return {
+                "answer": "I don't have information about this topic.",
+                "vector_results": len(hybrid_results["vector_results"]),
+                "graph_results": graph_count,
+            }
+
         answer = self.hybrid_router.synthesize_answer(query, hybrid_results)
+        sources = [doc.content for doc in hybrid_results["vector_results"]]
+        verified, _ = self.ood_detector.verifier.verify(answer, sources, query)
+        if not verified:
+            answer = "I'm not fully confident about this answer."
 
         return {
             "answer": answer,
             "vector_results": len(hybrid_results["vector_results"]),
-            "graph_results": len(hybrid_results["graph_results"])
+            "graph_results": graph_count,
         }
 
 
@@ -1282,17 +1354,6 @@ def main():
 
     # Intelligent document processing
     pipeline.process_documents_intelligently()
-
-    # Update OOD centroid and adjust threshold using sample queries
-    pipeline.ood_agent.domain_centroid = pipeline.ood_agent._compute_domain_centroid()
-
-    if getattr(CONFIG, "ood", SimpleNamespace(enabled=False)).enabled:
-        sample_queries = [
-            "What is Project Orion?",
-            "Explain Scania's role in ADAS development",
-            "How does Viscando's technology integrate with Smart Eye?",
-        ]
-        pipeline.ood_agent.auto_adjust_threshold(sample_queries)
 
     # PHASE 1: Build Knowledge Graph (only when needed)
     if force_rebuild:

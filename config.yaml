@@ -98,9 +98,8 @@ ood_detection:
     enable_clarification_requests: true
     confidence_explanation: true
 
-# Advanced features
-response_verification:
-  enable_fact_checking: true
-  enable_consistency_validation: true
-  enable_citation_verification: true
-  hallucination_detection_threshold: 0.2
+  response_verification:
+    enable_fact_checking: true
+    enable_consistency_validation: true
+    enable_citation_verification: true
+    hallucination_detection_threshold: 0.2
