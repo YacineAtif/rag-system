@@ -60,7 +60,7 @@ class ResponseVerificationConfig:
     hallucination_detection_threshold: float = 0.3
     high_confidence_threshold: float = 0.9
     relaxed_hallucination_threshold: float = 0.5
-    source_match_threshold: float = 0.6
+    source_match_threshold: float = 0.5
 
 
 class QueryAnalyzer:
@@ -209,11 +209,12 @@ class ResponseVerifier:
         return set(re.findall(r"\w+", text.lower()))
 
     @classmethod
-    def _jaccard(cls, a: str, b: str) -> float:
-        ta, tb = cls._tokenize(a), cls._tokenize(b)
-        if not ta or not tb:
+    def _overlap_ratio(cls, answer: str, source: str) -> float:
+        """Return ratio of answer tokens present in source tokens."""
+        ta, ts = cls._tokenize(answer), cls._tokenize(source)
+        if not ta:
             return 0.0
-        return len(ta & tb) / len(ta | tb)
+        return len(ta & ts) / len(ta)
 
     def verify(
         self,
@@ -232,7 +233,7 @@ class ResponseVerifier:
             for s in sources:
                 if not s:
                     continue
-                if self._jaccard(answer_l, s.lower()) >= threshold:
+                if self._overlap_ratio(answer_l, s.lower()) >= threshold:
                     matches += 1
             fact_score = matches / max(len(sources), 1)
         else:

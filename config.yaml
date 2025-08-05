@@ -105,3 +105,4 @@ ood_detection:
     hallucination_detection_threshold: 0.3
     high_confidence_threshold: 0.9
     relaxed_hallucination_threshold: 0.5
+    source_match_threshold: 0.5
