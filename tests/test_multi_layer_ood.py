@@ -12,8 +12,8 @@ from multi_layer_ood import (
 class TestMultiLayerOOD(unittest.TestCase):
     def setUp(self):
         keywords = KeywordTiers(
-            tier_1_critical={"core": ["evidence theory"]},
-            tier_2_important={"tech": ["adas"]},
+            tier_1_critical={"core": ["sample theory"]},
+            tier_2_important={"tech": ["widget"]},
             tier_3_contextual={"general": ["system"]},
         )
         quality = QualityGates(
@@ -41,13 +41,13 @@ class TestMultiLayerOOD(unittest.TestCase):
 
     def test_allows_in_domain(self):
         res = self.detector.process(
-            query="Explain evidence theory",
+            query="Explain sample theory",
             similarity=0.9,
             graph_connectivity=0.9,
             retrieved_relevances=[0.8, 0.9],
             token_probs=[0.9, 0.9, 0.9],
-            answer="Evidence theory deals with uncertainty [1]",
-            sources=["Evidence theory deals with uncertainty"],
+            answer="Sample theory deals with uncertainty [1]",
+            sources=["Sample theory deals with uncertainty"],
         )
         self.assertTrue(res["allow_generation"])
         self.assertTrue(res.get("response_verified"))
@@ -64,7 +64,7 @@ class TestMultiLayerOOD(unittest.TestCase):
 
     def test_retrieval_quality_gate(self):
         res = self.detector.process(
-            query="Explain evidence theory",
+            query="Explain sample theory",
             similarity=0.9,
             graph_connectivity=0.9,
             retrieved_relevances=[0.2],  # not enough passages
@@ -75,65 +75,65 @@ class TestMultiLayerOOD(unittest.TestCase):
 
     def test_response_verification_hallucination(self):
         res = self.detector.process(
-            query="Explain evidence theory",
+            query="Explain sample theory",
             similarity=0.9,
             graph_connectivity=0.9,
             retrieved_relevances=[0.9, 0.9],
             token_probs=[0.9, 0.9],
             answer="Completely unrelated answer",
-            sources=["Evidence theory deals with uncertainty"],
+            sources=["Sample theory deals with uncertainty"],
         )
         self.assertFalse(res.get("response_verified"))
 
     def test_response_verification_paraphrase(self):
         res = self.detector.process(
-            query="Explain evidence theory",
+            query="Explain sample theory",
             similarity=0.9,
             graph_connectivity=0.9,
             retrieved_relevances=[0.9, 0.9],
             token_probs=[0.9, 0.9],
-            answer="Evidence theory deals with uncertain information",
-            sources=["Evidence theory deals with uncertainty"],
+            answer="Sample theory deals with uncertain information",
+            sources=["Sample theory deals with uncertainty"],
         )
         self.assertTrue(res.get("response_verified"))
 
     def test_response_verification_single_match_many_sources(self):
         res = self.detector.process(
-            query="Explain evidence theory",
+            query="Explain sample theory",
             similarity=0.9,
             graph_connectivity=0.9,
             retrieved_relevances=[0.9, 0.9],
             token_probs=[0.9, 0.9],
-            answer="Evidence theory deals with uncertain information",
+            answer="Sample theory deals with uncertain information",
             sources=[
                 "Completely unrelated passage about other topics",
-                "Evidence theory deals with uncertainty",
+                "Sample theory deals with uncertainty",
             ],
         )
         self.assertTrue(res.get("response_verified"))
 
     def test_short_answer_verification(self):
         res = self.detector.process(
-            query="Explain evidence theory",
+            query="Explain sample theory",
             similarity=0.9,
             graph_connectivity=0.9,
             retrieved_relevances=[0.9, 0.9],
             token_probs=[0.9, 0.9],
-            answer="Dempster Shafer",
-            sources=["Evidence Theory also called Dempster Shafer Theory"],
+            answer="Sample Alias",
+            sources=["Sample theory also called Sample Alias theory"],
         )
         self.assertTrue(res.get("response_verified"))
 
     def test_complex_query_analysis(self):
         analysis = self.detector.query_analyzer.analyze(
-            "How does evidence theory compare to probability and statistics in safety systems?"
+            "How does sample theory compare to probability and statistics in safety systems?"
         )
         self.assertEqual(analysis["type"], "comparative")
         self.assertEqual(analysis["complexity"], "complex")
 
     def test_generation_guard_low_confidence(self):
         res = self.detector.process(
-            query="Explain evidence theory",
+            query="Explain sample theory",
             similarity=0.9,
             graph_connectivity=0.9,
             retrieved_relevances=[0.9, 0.9],
@@ -146,7 +146,7 @@ class TestMultiLayerOOD(unittest.TestCase):
         graph_count = 10
         graph_connectivity = graph_count / max(len(vector_relevances), 1)
         res = self.detector.process(
-            query="what is evidence theory?",
+            query="what is sample theory?",
             similarity=0.9,
             graph_connectivity=graph_connectivity,
             retrieved_relevances=vector_relevances,
@@ -158,7 +158,7 @@ class TestMultiLayerOOD(unittest.TestCase):
         relevances = [0.9] * 10000
         start = time.perf_counter()
         res = self.detector.process(
-            query="Explain evidence theory",
+            query="Explain sample theory",
             similarity=0.9,
             graph_connectivity=0.9,
             retrieved_relevances=relevances,
