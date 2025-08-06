@@ -229,13 +229,12 @@ class ResponseVerifier:
         # Fact checking: ensure semantic overlap with sources
         if self.cfg.enable_fact_checking:
             threshold = self.cfg.source_match_threshold
-            matches = 0
-            for s in sources:
-                if not s:
-                    continue
-                if self._overlap_ratio(answer_l, s.lower()) >= threshold:
-                    matches += 1
-            fact_score = matches / max(len(sources), 1)
+            overlaps = [
+                self._overlap_ratio(answer_l, s.lower())
+                for s in sources
+                if s
+            ]
+            fact_score = max(overlaps, default=0.0)
         else:
             fact_score = 1.0
         signals["fact_score"] = fact_score
@@ -259,15 +258,15 @@ class ResponseVerifier:
         hallucination_risk = 1.0 - fact_score
         signals["hallucination_risk"] = hallucination_risk
 
-        threshold = self.cfg.hallucination_detection_threshold
+        risk_threshold = self.cfg.hallucination_detection_threshold
         if (
             confidence is not None
             and confidence >= self.cfg.high_confidence_threshold
         ):
-            threshold = max(threshold, self.cfg.relaxed_hallucination_threshold)
+            risk_threshold = max(risk_threshold, self.cfg.relaxed_hallucination_threshold)
 
         passed = (
-            hallucination_risk <= threshold
+            fact_score >= threshold
             and consistency > 0.0
             and citation_score > 0.0
         )
