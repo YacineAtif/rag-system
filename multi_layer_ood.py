@@ -211,14 +211,18 @@ class ContextRelevanceAssessor:
     def __init__(self, cfg: ResponseVerificationConfig):
         self.cfg = cfg
         self.logger = logging.getLogger(__name__ + ".ContextRelevanceAssessor")
+        model_name = "sentence-transformers/all-MiniLM-L6-v2"
         try:
-            self._embedder = SentenceTransformer(
-                "sentence-transformers/all-MiniLM-L6-v2"
+            self.logger.debug("Loading SentenceTransformer model %s", model_name)
+            self._embedder = SentenceTransformer(model_name)
+            self.logger.debug(
+                "Loaded model with embedding dimension %s",
+                self._embedder.get_sentence_embedding_dimension(),
             )
             self._use_transformer = True
         except Exception as exc:  # pragma: no cover - network failure fallback
             self.logger.warning(
-                "Falling back to HashingVectorizer embeddings: %s", exc
+                "Falling back to HashingVectorizer embeddings due to: %s", exc
             )
             self._use_transformer = False
             self._vectorizer = HashingVectorizer(
@@ -230,11 +234,12 @@ class ContextRelevanceAssessor:
     def _get_embedding(self, text: str) -> np.ndarray:
         if text not in self._embedding_cache:
             if self._use_transformer:
-                self._embedding_cache[text] = self._embedder.encode(text)
+                emb = self._embedder.encode(text, normalize_embeddings=True)
+                self.logger.debug("Embedding for '%s' shape=%s", text, emb.shape)
             else:  # pragma: no cover - simple hashing fallback
-                self._embedding_cache[text] = self._vectorizer.transform([text]).toarray()[
-                    0
-                ]
+                emb = self._vectorizer.transform([text]).toarray()[0]
+                self.logger.debug("Hashing embedding for '%s' shape=%s", text, emb.shape)
+            self._embedding_cache[text] = emb
         return self._embedding_cache[text]
 
     def score_passages(
@@ -246,6 +251,7 @@ class ContextRelevanceAssessor:
         """Return passages with relevance scores using semantic similarity."""
 
         q_emb = self._get_embedding(query)
+        self.logger.debug("Query embedding shape=%s", getattr(q_emb, "shape", None))
         scored: List[Tuple[str, float]] = []
         for idx, p in enumerate(passages):
             key = (query, p)
@@ -258,6 +264,13 @@ class ContextRelevanceAssessor:
                     p_emb = self._get_embedding(p)
                 norm = np.linalg.norm(q_emb) * np.linalg.norm(p_emb)
                 score = float(np.dot(q_emb, p_emb) / norm) if norm else 0.0
+                self.logger.debug(
+                    "Passage %d embedding shape=%s norm=%.4f score=%.4f",
+                    idx,
+                    getattr(p_emb, "shape", None),
+                    norm,
+                    score,
+                )
                 self._score_cache[key] = score
             scored.append((p, score))
         self.logger.debug("Context relevance scores: %s", scored)
