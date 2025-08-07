@@ -86,7 +86,7 @@ ood_detection:
 
   # Quality control parameters
   quality_gates:
-    min_context_relevance: 0.7
+    min_context_relevance: 0.5
     min_passage_count: 2
     max_contradiction_score: 0.3
     min_information_density: 0.6
@@ -99,8 +99,8 @@ ood_detection:
     confidence_explanation: true
 
   response_verification:
-    relevance_threshold: 0.5
-    min_relevant_passages: 1
+    relevance_threshold: 0.4
+    min_relevant_passages: 2
     lexical_similarity_threshold: 0.5
     max_entropy_threshold: 2.0
     mean_entropy_threshold: 1.5
