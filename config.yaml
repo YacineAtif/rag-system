@@ -99,10 +99,9 @@ ood_detection:
     confidence_explanation: true
 
   response_verification:
-    enable_fact_checking: true
-    enable_consistency_validation: true
-    enable_citation_verification: true
-    hallucination_detection_threshold: 0.3
-    high_confidence_threshold: 0.9
-    relaxed_hallucination_threshold: 0.5
-    source_match_threshold: 0.5
+    relevance_threshold: 0.5
+    min_relevant_passages: 1
+    lexical_similarity_threshold: 0.5
+    max_entropy_threshold: 2.0
+    mean_entropy_threshold: 1.5
+    sar_threshold: 0.0
