@@ -23,11 +23,11 @@ class TestMultiLayerOOD(unittest.TestCase):
             min_information_density=0.4,
         )
         verify = ResponseVerificationConfig(
-            enable_fact_checking=True,
-            enable_consistency_validation=True,
-            enable_citation_verification=True,
-            hallucination_detection_threshold=0.3,
-            source_match_threshold=0.5,
+            relevance_threshold=0.5,
+            lexical_similarity_threshold=0.3,
+            max_entropy_threshold=2.0,
+            mean_entropy_threshold=1.5,
+            sar_threshold=0.0,
         )
         cfg = OODDetectionConfig(
             similarity_threshold=0.1,
@@ -44,10 +44,12 @@ class TestMultiLayerOOD(unittest.TestCase):
             query="Explain sample theory",
             similarity=0.9,
             graph_connectivity=0.9,
-            retrieved_relevances=[0.8, 0.9],
+            retrieved_passages=[
+                "Sample theory deals with uncertainty",
+                "More details on sample theory",
+            ],
             token_probs=[0.9, 0.9, 0.9],
             answer="Sample theory deals with uncertainty [1]",
-            sources=["Sample theory deals with uncertainty"],
         )
         self.assertTrue(res["allow_generation"])
         self.assertTrue(res.get("response_verified"))
@@ -57,7 +59,10 @@ class TestMultiLayerOOD(unittest.TestCase):
             query="Random question",
             similarity=0.01,
             graph_connectivity=0.9,
-            retrieved_relevances=[0.9, 0.8],
+            retrieved_passages=[
+                "Sample theory deals with uncertainty",
+                "More details on sample theory",
+            ],
             token_probs=[0.9],
         )
         self.assertFalse(res["allow_generation"])
@@ -67,7 +72,7 @@ class TestMultiLayerOOD(unittest.TestCase):
             query="Explain sample theory",
             similarity=0.9,
             graph_connectivity=0.9,
-            retrieved_relevances=[0.2],  # not enough passages
+            retrieved_passages=["Irrelevant text"],  # not enough passages
             token_probs=[0.9, 0.9],
         )
         self.assertFalse(res["retrieval_ok"])
@@ -78,10 +83,12 @@ class TestMultiLayerOOD(unittest.TestCase):
             query="Explain sample theory",
             similarity=0.9,
             graph_connectivity=0.9,
-            retrieved_relevances=[0.9, 0.9],
+            retrieved_passages=[
+                "Sample theory deals with uncertainty",
+                "More details on sample theory",
+            ],
             token_probs=[0.9, 0.9],
             answer="Completely unrelated answer",
-            sources=["Sample theory deals with uncertainty"],
         )
         self.assertFalse(res.get("response_verified"))
 
@@ -90,10 +97,12 @@ class TestMultiLayerOOD(unittest.TestCase):
             query="Explain sample theory",
             similarity=0.9,
             graph_connectivity=0.9,
-            retrieved_relevances=[0.9, 0.9],
+            retrieved_passages=[
+                "Sample theory deals with uncertainty",
+                "More details on sample theory",
+            ],
             token_probs=[0.9, 0.9],
             answer="Sample theory deals with uncertain information",
-            sources=["Sample theory deals with uncertainty"],
         )
         self.assertTrue(res.get("response_verified"))
 
@@ -102,13 +111,12 @@ class TestMultiLayerOOD(unittest.TestCase):
             query="Explain sample theory",
             similarity=0.9,
             graph_connectivity=0.9,
-            retrieved_relevances=[0.9, 0.9],
-            token_probs=[0.9, 0.9],
-            answer="Sample theory deals with uncertain information",
-            sources=[
+            retrieved_passages=[
                 "Completely unrelated passage about other topics",
                 "Sample theory deals with uncertainty",
             ],
+            token_probs=[0.9, 0.9],
+            answer="Sample theory deals with uncertain information",
         )
         self.assertTrue(res.get("response_verified"))
 
@@ -117,10 +125,12 @@ class TestMultiLayerOOD(unittest.TestCase):
             query="Explain sample theory",
             similarity=0.9,
             graph_connectivity=0.9,
-            retrieved_relevances=[0.9, 0.9],
+            retrieved_passages=[
+                "Sample theory also called Sample Alias theory",
+                "More details on sample theory",
+            ],
             token_probs=[0.9, 0.9],
             answer="Sample Alias",
-            sources=["Sample theory also called Sample Alias theory"],
         )
         self.assertTrue(res.get("response_verified"))
 
@@ -136,7 +146,10 @@ class TestMultiLayerOOD(unittest.TestCase):
             query="Explain sample theory",
             similarity=0.9,
             graph_connectivity=0.9,
-            retrieved_relevances=[0.9, 0.9],
+            retrieved_passages=[
+                "Sample theory deals with uncertainty",
+                "More details on sample theory",
+            ],
             token_probs=[0.25, 0.25, 0.25, 0.25],
         )
         self.assertFalse(res["allow_generation"])
@@ -149,19 +162,19 @@ class TestMultiLayerOOD(unittest.TestCase):
             query="what is sample theory?",
             similarity=0.9,
             graph_connectivity=graph_connectivity,
-            retrieved_relevances=vector_relevances,
+            retrieved_passages=["sample theory"] * 10,
             token_probs=[0.9, 0.9],
         )
         self.assertTrue(res["allow_generation"])
 
     def test_performance_large_relevances(self):
-        relevances = [0.9] * 10000
+        passages = ["sample theory"] * 10000
         start = time.perf_counter()
         res = self.detector.process(
             query="Explain sample theory",
             similarity=0.9,
             graph_connectivity=0.9,
-            retrieved_relevances=relevances,
+            retrieved_passages=passages,
             token_probs=[0.9, 0.9],
         )
         elapsed = time.perf_counter() - start

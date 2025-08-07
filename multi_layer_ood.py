@@ -54,13 +54,17 @@ class OODDetectionConfig:
 
 @dataclass
 class ResponseVerificationConfig:
-    enable_fact_checking: bool = True
-    enable_consistency_validation: bool = True
-    enable_citation_verification: bool = True
-    hallucination_detection_threshold: float = 0.3
-    high_confidence_threshold: float = 0.9
-    relaxed_hallucination_threshold: float = 0.5
-    source_match_threshold: float = 0.5
+    """Configuration for response verification and uncertainty estimation."""
+
+    # Context relevance
+    relevance_threshold: float = 0.5
+    min_relevant_passages: int = 1
+
+    # Uncertainty metrics
+    lexical_similarity_threshold: float = 0.5
+    max_entropy_threshold: float = 1.5
+    mean_entropy_threshold: float = 0.5
+    sar_threshold: float = 0.3
 
 
 class QueryAnalyzer:
@@ -197,8 +201,45 @@ class GenerationGuard:
         return confidence, allow
 
 
+class ContextRelevanceAssessor:
+    """Score and filter passages based on query relevance."""
+
+    def __init__(self, cfg: ResponseVerificationConfig):
+        self.cfg = cfg
+        self.logger = logging.getLogger(__name__ + ".ContextRelevanceAssessor")
+
+    @staticmethod
+    def _tokenize(text: str) -> set[str]:
+        return set(re.findall(r"\w+", text.lower()))
+
+    def score_passages(
+        self, query: str, passages: Sequence[str]
+    ) -> List[Tuple[str, float]]:
+        """Return passages with relevance scores using simple lexical overlap."""
+
+        q_tokens = self._tokenize(query)
+        scored: List[Tuple[str, float]] = []
+        for p in passages:
+            p_tokens = self._tokenize(p)
+            if not p_tokens:
+                score = 0.0
+            else:
+                score = len(q_tokens & p_tokens) / len(q_tokens or {1})
+            scored.append((p, score))
+        self.logger.debug("Context relevance scores: %s", scored)
+        return scored
+
+    def filter_relevant(
+        self, query: str, passages: Sequence[str]
+    ) -> Tuple[List[str], List[float]]:
+        scored = self.score_passages(query, passages)
+        relevant = [p for p, s in scored if s >= self.cfg.relevance_threshold]
+        scores = [s for _, s in scored]
+        return relevant, scores
+
+
 class ResponseVerifier:
-    """Verify generated responses using simple heuristic checks."""
+    """Estimate uncertainty of a generated answer against context."""
 
     def __init__(self, config: ResponseVerificationConfig):
         self.cfg = config
@@ -209,66 +250,55 @@ class ResponseVerifier:
         return set(re.findall(r"\w+", text.lower()))
 
     @classmethod
-    def _overlap_ratio(cls, answer: str, source: str) -> float:
-        """Return ratio of answer tokens present in source tokens."""
-        ta, ts = cls._tokenize(answer), cls._tokenize(source)
+    def _overlap_ratio(cls, a: str, b: str) -> float:
+        ta, tb = cls._tokenize(a), cls._tokenize(b)
         if not ta:
             return 0.0
-        return len(ta & ts) / len(ta)
+        return len(ta & tb) / len(ta)
 
     def verify(
         self,
         answer: str,
-        sources: Sequence[str],
-        query: str,
-        confidence: float | None = None,
+        context: Sequence[str],
+        token_probs: Sequence[float] | None = None,
+        attention: Sequence[float] | None = None,
     ) -> Tuple[bool, Dict[str, float]]:
+        """Return pass/fail along with uncertainty signals."""
+
         signals: Dict[str, float] = {}
-
         answer_l = answer.lower()
-        # Fact checking: ensure semantic overlap with sources
-        if self.cfg.enable_fact_checking:
-            threshold = self.cfg.source_match_threshold
-            overlaps = [
-                self._overlap_ratio(answer_l, s.lower())
-                for s in sources
-                if s
-            ]
-            fact_score = max(overlaps, default=0.0)
+
+        overlaps = [self._overlap_ratio(answer_l, c.lower()) for c in context]
+        lexical_similarity = max(overlaps, default=0.0)
+        signals["lexical_similarity"] = lexical_similarity
+
+        if token_probs:
+            entropies = [-math.log(p + 1e-9) for p in token_probs]
+            max_entropy = max(entropies)
+            mean_entropy = sum(entropies) / len(entropies)
         else:
-            fact_score = 1.0
-        signals["fact_score"] = fact_score
+            max_entropy = mean_entropy = float("inf")
+        signals["max_entropy"] = max_entropy
+        signals["mean_entropy"] = mean_entropy
 
-        # Consistency: naive check that answer doesn't contradict query intent
-        if self.cfg.enable_consistency_validation:
-            inconsistent = "i don't know" in answer_l and "?" not in query
-            consistency = 0.0 if inconsistent else 1.0
+        if attention:
+            sar_score = sum(attention) / len(attention)
         else:
-            consistency = 1.0
-        signals["consistency"] = consistency
+            sar_score = 0.0
+        signals["sar_score"] = sar_score
 
-        # Citation verification: ensure citation count <= sources
-        if self.cfg.enable_citation_verification:
-            citation_count = answer.count("[")  # simplistic
-            citation_score = 1.0 if citation_count <= len(sources) else 0.0
-        else:
-            citation_score = 1.0
-        signals["citation_score"] = citation_score
-
-        hallucination_risk = 1.0 - fact_score
-        signals["hallucination_risk"] = hallucination_risk
-
-        risk_threshold = self.cfg.hallucination_detection_threshold
-        if (
-            confidence is not None
-            and confidence >= self.cfg.high_confidence_threshold
-        ):
-            risk_threshold = max(risk_threshold, self.cfg.relaxed_hallucination_threshold)
+        confidence = (
+            lexical_similarity
+            + max(0.0, 1 - mean_entropy)
+            + sar_score
+        ) / 3
+        signals["confidence"] = confidence
 
         passed = (
-            fact_score >= threshold
-            and consistency > 0.0
-            and citation_score > 0.0
+            lexical_similarity >= self.cfg.lexical_similarity_threshold
+            and max_entropy <= self.cfg.max_entropy_threshold
+            and mean_entropy <= self.cfg.mean_entropy_threshold
+            and (sar_score >= self.cfg.sar_threshold or not attention)
         )
         self.logger.debug("Response verification signals: %s", signals)
         return passed, signals
@@ -283,6 +313,7 @@ class MultiLayerOODDetector:
         self.boundary = DomainBoundaryDetector(self.cfg)
         self.retrieval = RetrievalQualityGate(self.cfg)
         self.guard = GenerationGuard(self.cfg)
+        self.relevance = ContextRelevanceAssessor(self.cfg.response_verification)
         self.verifier = ResponseVerifier(self.cfg.response_verification)
 
     def process(
@@ -290,10 +321,10 @@ class MultiLayerOODDetector:
         query: str,
         similarity: float,
         graph_connectivity: float,
-        retrieved_relevances: Sequence[float],
+        retrieved_passages: Sequence[str],
         token_probs: Sequence[float],
         answer: Optional[str] = None,
-        sources: Optional[Sequence[str]] = None,
+        attention: Optional[Sequence[float]] = None,
     ) -> Dict[str, object]:
         """Run all OOD checks and optional response verification."""
 
@@ -301,9 +332,20 @@ class MultiLayerOODDetector:
         in_domain, boundary_signals = self.boundary.check(
             query, similarity, graph_connectivity
         )
-        retrieval_ok, retrieval_signals = self.retrieval.evaluate(retrieved_relevances)
+        relevant_passages, relevance_scores = self.relevance.filter_relevant(
+            query, retrieved_passages
+        )
+        retrieval_ok, retrieval_signals = self.retrieval.evaluate(relevance_scores)
         confidence, gen_allowed = self.guard.evaluate(token_probs)
         allow_generation = in_domain and retrieval_ok and gen_allowed
+        abstention_reason = ""
+        if not allow_generation:
+            if not in_domain:
+                abstention_reason = "out-of-domain"
+            elif not retrieval_ok:
+                abstention_reason = "insufficient context"
+            else:
+                abstention_reason = "low confidence"
 
         result: Dict[str, object] = {
             "analysis": analysis,
@@ -313,11 +355,15 @@ class MultiLayerOODDetector:
             "in_domain": in_domain,
             "retrieval_ok": retrieval_ok,
             "allow_generation": allow_generation,
+            "abstain": not allow_generation,
+            "abstention_reason": abstention_reason,
+            "relevance_scores": relevance_scores,
+            "relevant_passages": relevant_passages,
         }
 
-        if answer is not None and sources is not None:
+        if answer is not None:
             verified, verification = self.verifier.verify(
-                answer, sources, query, confidence
+                answer, relevant_passages, token_probs, attention
             )
             result["response_verified"] = verified
             result["verification_signals"] = verification
