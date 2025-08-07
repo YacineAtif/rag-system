@@ -239,7 +239,12 @@ class TestHybridPipeline(unittest.TestCase):
         )
 
         with patch.object(
-            pipeline.ood_detector, 'process', return_value={"allow_generation": True}
+            pipeline.ood_detector,
+            'process',
+            return_value={
+                "allow_generation": True,
+                "relevant_passages": [doc_content],
+            },
         ):
             with patch.object(
                 pipeline.ood_detector.verifier, 'verify', return_value=(True, {})
@@ -250,12 +255,8 @@ class TestHybridPipeline(unittest.TestCase):
             result["answer"],
             "Artificial intelligence enables machines to perform tasks.",
         )
-        called_sources = mock_verify.call_args[0][1]
-        self.assertEqual(
-            called_sources,
-            ["Artificial intelligence enables machines to perform tasks."],
-        )
-        self.assertLess(len(called_sources[0]), len(doc_content))
+        called_context = mock_verify.call_args[0][1]
+        self.assertEqual(called_context, [doc_content])
 
 if __name__ == '__main__':
     unittest.main()

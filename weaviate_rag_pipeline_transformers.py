@@ -1276,16 +1276,18 @@ class RAGPipeline:
 
         hybrid_results = self.hybrid_router.hybrid_retrieve(query)
 
-        vector_relevances = [doc.score or 0.0 for doc in hybrid_results["vector_results"]]
+        retrieved_passages = [
+            doc.content for doc in hybrid_results["vector_results"]
+        ]
         graph_count = len(hybrid_results["graph_results"])
         similarity = self._embedding_similarity(query)
-        graph_connectivity = graph_count / max(len(hybrid_results["vector_results"]), 1)
+        graph_connectivity = graph_count / max(len(retrieved_passages), 1)
 
         detection = self.ood_detector.process(
             query=query,
             similarity=similarity,
             graph_connectivity=graph_connectivity,
-            retrieved_relevances=vector_relevances,
+            retrieved_passages=retrieved_passages,
             token_probs=[0.9],
         )
 
@@ -1299,12 +1301,9 @@ class RAGPipeline:
             }
 
         answer = self.hybrid_router.synthesize_answer(query, hybrid_results)
-        sources = []
-        for doc in hybrid_results["vector_results"]:
-            sentences = self.text_processor.extract_quality_sentences(doc.content)
-            snippet = sentences[0] if sentences else doc.content[:200]
-            sources.append(snippet)
-        verified, _ = self.ood_detector.verifier.verify(answer, sources, query)
+        verified, _ = self.ood_detector.verifier.verify(
+            answer, detection["relevant_passages"], token_probs=[0.9]
+        )
         if not verified:
             answer = "I'm not fully confident about this answer."
 
