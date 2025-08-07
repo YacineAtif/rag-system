@@ -69,26 +69,56 @@ def load_docx_file(file_path: str) -> str:
         print(f"❌ Error reading DOCX {file_path}: {e}")
         return ""
 
-def chunk_text(text: str, chunk_size: int = 800, overlap: int = 150) -> List[str]:
-    """Split text preserving sentence boundaries with semantic overlap"""
-    sentences = re.split(r'(?<=[.!?])\s+', text)
-    chunks = []
-    current_chunk = []
-    current_length = 0
-    
-    for sentence in sentences:
-        sent_length = len(sentence)
-        if current_length + sent_length > chunk_size and current_chunk:
-            chunks.append(" ".join(current_chunk))
-            # Keep overlapping sentences
-            overlap_count = max(1, int(len(current_chunk) * 0.3))
-            current_chunk = current_chunk[-overlap_count:]
-            current_length = sum(len(s) for s in current_chunk)
-        current_chunk.append(sentence)
-        current_length += sent_length
-    
+def chunk_text(text: str, chunk_size: int = 2000, overlap: int = 200) -> List[str]:
+    """Split text into larger chunks while keeping bullet lists intact."""
+
+    bullet_re = re.compile(r"^\s*(?:[-*]|\d+\.)\s+")
+    lines = text.splitlines()
+    segments: List[str] = []
+    buffer: List[str] = []
+    in_bullet = False
+
+    for line in lines:
+        if bullet_re.match(line):
+            if not in_bullet and buffer:
+                segments.append(" ".join(buffer).strip())
+                buffer = []
+            in_bullet = True
+            buffer.append(line.strip())
+        else:
+            if in_bullet and buffer:
+                segments.append("\n".join(buffer).strip())
+                buffer = []
+            in_bullet = False
+            buffer.append(line.strip())
+
+    if buffer:
+        if in_bullet:
+            segments.append("\n".join(buffer).strip())
+        else:
+            segments.append(" ".join(buffer).strip())
+
+    chunks: List[str] = []
+    current_chunk: List[str] = []
+    current_tokens = 0
+
+    for seg in segments:
+        seg_tokens = len(seg.split())
+        if current_tokens + seg_tokens > chunk_size and current_chunk:
+            chunks.append("\n".join(current_chunk))
+            if overlap > 0:
+                tokens = "\n".join(current_chunk).split()
+                overlap_tokens = tokens[-overlap:]
+                current_chunk = [" ".join(overlap_tokens)]
+                current_tokens = len(overlap_tokens)
+            else:
+                current_chunk = []
+                current_tokens = 0
+        current_chunk.append(seg)
+        current_tokens += seg_tokens
+
     if current_chunk:
-        chunks.append(" ".join(current_chunk))
+        chunks.append("\n".join(current_chunk))
 
     return chunks
 
@@ -169,7 +199,11 @@ def load_documents_from_folder(folder_path: str) -> List[Document]:
                 sections = split_into_sections(content, patterns)
                 chunk_pairs = []
                 for section_name, section_text in sections:
-                    chs = chunk_text(section_text, chunk_size=800, overlap=150)
+                    chs = chunk_text(
+                        section_text,
+                        chunk_size=CONFIG.get("chunk_size", 2000),
+                        overlap=CONFIG.get("chunk_overlap", 200),
+                    )
                     for ch in chs:
                         chunk_pairs.append((section_name, ch))
 

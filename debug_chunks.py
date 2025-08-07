@@ -1,27 +1,57 @@
 import re
 from pathlib import Path
 
-def chunk_text(text: str, chunk_size: int = 500, overlap: int = 100):
-    """Same chunking logic as in your pipeline"""
-    sentences = re.split(r'(?<=[.!?])\s+', text)
+def chunk_text(text: str, chunk_size: int = 2000, overlap: int = 200):
+    """Chunk text using large segments while preserving bullet lists."""
+
+    bullet_re = re.compile(r"^\s*(?:[-*]|\d+\.)\s+")
+    lines = text.splitlines()
+    segments = []
+    buffer = []
+    in_bullet = False
+
+    for line in lines:
+        if bullet_re.match(line):
+            if not in_bullet and buffer:
+                segments.append(" ".join(buffer).strip())
+                buffer = []
+            in_bullet = True
+            buffer.append(line.strip())
+        else:
+            if in_bullet and buffer:
+                segments.append("\n".join(buffer).strip())
+                buffer = []
+            in_bullet = False
+            buffer.append(line.strip())
+
+    if buffer:
+        if in_bullet:
+            segments.append("\n".join(buffer).strip())
+        else:
+            segments.append(" ".join(buffer).strip())
+
     chunks = []
     current_chunk = []
-    current_length = 0
-    
-    for sentence in sentences:
-        sent_length = len(sentence)
-        if current_length + sent_length > chunk_size and current_chunk:
-            chunks.append(" ".join(current_chunk))
-            overlap_count = max(1, int(len(current_chunk) * 0.3))
-            current_chunk = current_chunk[-overlap_count:]
-            current_length = sum(len(s) for s in current_chunk)
-        
-        current_chunk.append(sentence)
-        current_length += sent_length
-    
+    current_tokens = 0
+
+    for seg in segments:
+        seg_tokens = len(seg.split())
+        if current_tokens + seg_tokens > chunk_size and current_chunk:
+            chunks.append("\n".join(current_chunk))
+            if overlap > 0:
+                tokens = "\n".join(current_chunk).split()
+                overlap_tokens = tokens[-overlap:]
+                current_chunk = [" ".join(overlap_tokens)]
+                current_tokens = len(overlap_tokens)
+            else:
+                current_chunk = []
+                current_tokens = 0
+        current_chunk.append(seg)
+        current_tokens += seg_tokens
+
     if current_chunk:
-        chunks.append(" ".join(current_chunk))
-    
+        chunks.append("\n".join(current_chunk))
+
     return chunks
 
 def debug_chunks():
@@ -39,7 +69,7 @@ def debug_chunks():
     
     print(f"📄 Document length: {len(content)} characters")
     
-    chunks = chunk_text(content, chunk_size=500, overlap=100)
+    chunks = chunk_text(content, chunk_size=2000, overlap=200)
     
     print(f"📦 Total chunks: {len(chunks)}")
     print("\n" + "="*80)
