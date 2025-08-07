@@ -114,7 +114,7 @@ Type `quit` to exit.
 ### Chunk Size and Overlap
 Modify chunking parameters in `weaviate_rag_pipeline_transformers.py`:
 ```python
-chunks = chunk_text(content, chunk_size=500, overlap=100)
+chunks = chunk_text(content, chunk_size=2000, overlap=200)
 ```
 
 ### Retrieval Settings

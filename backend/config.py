@@ -116,8 +116,8 @@ class Config:
 
     def __init__(self, config_path: str = "config.yaml"):
         self.documents_folder = "documents"
-        self.chunk_size = 500
-        self.chunk_overlap = 100
+        self.chunk_size = 2000
+        self.chunk_overlap = 200
         self.development = True
 
         self.weaviate = WeaviateConfig()
