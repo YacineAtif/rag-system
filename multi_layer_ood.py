@@ -12,6 +12,10 @@ import re
 from dataclasses import dataclass, field
 from typing import Dict, List, Sequence, Tuple, Optional
 
+import numpy as np
+from sentence_transformers import SentenceTransformer
+from sklearn.feature_extraction.text import HashingVectorizer
+
 
 @dataclass
 class KeywordTiers:
@@ -207,32 +211,65 @@ class ContextRelevanceAssessor:
     def __init__(self, cfg: ResponseVerificationConfig):
         self.cfg = cfg
         self.logger = logging.getLogger(__name__ + ".ContextRelevanceAssessor")
+        try:
+            self._embedder = SentenceTransformer(
+                "sentence-transformers/all-MiniLM-L6-v2"
+            )
+            self._use_transformer = True
+        except Exception as exc:  # pragma: no cover - network failure fallback
+            self.logger.warning(
+                "Falling back to HashingVectorizer embeddings: %s", exc
+            )
+            self._use_transformer = False
+            self._vectorizer = HashingVectorizer(
+                n_features=384, alternate_sign=False, norm="l2"
+            )
+        self._embedding_cache: Dict[str, np.ndarray] = {}
+        self._score_cache: Dict[Tuple[str, str], float] = {}
 
-    @staticmethod
-    def _tokenize(text: str) -> set[str]:
-        return set(re.findall(r"\w+", text.lower()))
+    def _get_embedding(self, text: str) -> np.ndarray:
+        if text not in self._embedding_cache:
+            if self._use_transformer:
+                self._embedding_cache[text] = self._embedder.encode(text)
+            else:  # pragma: no cover - simple hashing fallback
+                self._embedding_cache[text] = self._vectorizer.transform([text]).toarray()[
+                    0
+                ]
+        return self._embedding_cache[text]
 
     def score_passages(
-        self, query: str, passages: Sequence[str]
+        self,
+        query: str,
+        passages: Sequence[str],
+        passage_embeddings: Optional[Sequence[Sequence[float]]] = None,
     ) -> List[Tuple[str, float]]:
-        """Return passages with relevance scores using simple lexical overlap."""
+        """Return passages with relevance scores using semantic similarity."""
 
-        q_tokens = self._tokenize(query)
+        q_emb = self._get_embedding(query)
         scored: List[Tuple[str, float]] = []
-        for p in passages:
-            p_tokens = self._tokenize(p)
-            if not p_tokens:
-                score = 0.0
+        for idx, p in enumerate(passages):
+            key = (query, p)
+            if key in self._score_cache:
+                score = self._score_cache[key]
             else:
-                score = len(q_tokens & p_tokens) / len(q_tokens or {1})
+                if passage_embeddings and idx < len(passage_embeddings):
+                    p_emb = np.asarray(passage_embeddings[idx])
+                else:
+                    p_emb = self._get_embedding(p)
+                norm = np.linalg.norm(q_emb) * np.linalg.norm(p_emb)
+                score = float(np.dot(q_emb, p_emb) / norm) if norm else 0.0
+                self._score_cache[key] = score
             scored.append((p, score))
         self.logger.debug("Context relevance scores: %s", scored)
         return scored
 
     def filter_relevant(
-        self, query: str, passages: Sequence[str]
+        self,
+        query: str,
+        passages: Sequence[str],
+        passage_embeddings: Optional[Sequence[Sequence[float]]] = None,
     ) -> Tuple[List[str], List[float]]:
-        scored = self.score_passages(query, passages)
+        scored = self.score_passages(query, passages, passage_embeddings)
         relevant = [p for p, s in scored if s >= self.cfg.relevance_threshold]
         scores = [s for _, s in scored]
         return relevant, scores
