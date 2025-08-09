@@ -242,7 +242,7 @@ class ContextRelevanceAssessor:
         model_name = "sentence-transformers/all-MiniLM-L6-v2"
         try:
             self.logger.debug("Loading SentenceTransformer model %s", model_name)
-            self._embedder = SentenceTransformer(model_name, show_progress_bar=False)
+            self._embedder = SentenceTransformer(model_name, )
             self.logger.debug(
                 "Loaded model with embedding dimension %s",
                 self._embedder.get_sentence_embedding_dimension(),
@@ -262,7 +262,7 @@ class ContextRelevanceAssessor:
     def _get_embedding(self, text: str) -> np.ndarray:
         if text not in self._embedding_cache:
             if self._use_transformer:
-                emb = self._embedder.encode(text, normalize_embeddings=True, show_progress_bar=False)
+                emb = self._embedder.encode(text, normalize_embeddings=True, )
                 self.logger.debug("Embedding for '%s' shape=%s", text, emb.shape)
             else:  # pragma: no cover - simple hashing fallback
                 emb = self._vectorizer.transform([text]).toarray()[0]
