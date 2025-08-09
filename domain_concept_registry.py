@@ -22,7 +22,7 @@ class DomainConceptRegistry:
         if _HAS_TRANSFORMER:
             model_name = "sentence-transformers/all-MiniLM-L6-v2"
             try:
-                self._embedder = SentenceTransformer(model_name)
+                self._embedder = SentenceTransformer(model_name, show_progress_bar=False)
                 self._use_transformer = True
             except Exception as exc:  # pragma: no cover - network failure fallback
                 logger.warning("Falling back to HashingVectorizer embeddings due to: %s", exc)
@@ -35,7 +35,7 @@ class DomainConceptRegistry:
 
     def _embed(self, text: str) -> np.ndarray:
         if self._use_transformer:
-            return self._embedder.encode(text, normalize_embeddings=True)
+            return self._embedder.encode(text, normalize_embeddings=True, show_progress_bar=False)
         return self._vectorizer.transform([text]).toarray()[0]
 
     def resolve(self, term: str) -> str:

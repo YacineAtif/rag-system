@@ -16,6 +16,8 @@ import numpy as np
 from sentence_transformers import SentenceTransformer
 from sklearn.feature_extraction.text import HashingVectorizer
 
+logger = logging.getLogger(__name__)
+
 from domain_concept_registry import DomainConceptRegistry
 from graph_semantic_analyzer import GraphSemanticAnalyzer
 from query_normalizer import QueryNormalizer
@@ -242,7 +244,7 @@ class ContextRelevanceAssessor:
         model_name = "sentence-transformers/all-MiniLM-L6-v2"
         try:
             self.logger.debug("Loading SentenceTransformer model %s", model_name)
-            self._embedder = SentenceTransformer(model_name)
+            self._embedder = SentenceTransformer(model_name, show_progress_bar=False)
             self.logger.debug(
                 "Loaded model with embedding dimension %s",
                 self._embedder.get_sentence_embedding_dimension(),
@@ -262,7 +264,7 @@ class ContextRelevanceAssessor:
     def _get_embedding(self, text: str) -> np.ndarray:
         if text not in self._embedding_cache:
             if self._use_transformer:
-                emb = self._embedder.encode(text, normalize_embeddings=True)
+                emb = self._embedder.encode(text, normalize_embeddings=True, show_progress_bar=False)
                 self.logger.debug("Embedding for '%s' shape=%s", text, emb.shape)
             else:  # pragma: no cover - simple hashing fallback
                 emb = self._vectorizer.transform([text]).toarray()[0]
@@ -410,12 +412,14 @@ class MultiLayerOODDetector:
     ) -> Dict[str, object]:
         """Run all OOD checks and optional response verification."""
 
+        logger.info("🔍 Analyzing query...")
         normalized_query, matched = self.normalizer.normalize(query)
         analysis = self.query_analyzer.analyze(normalized_query)
         graph_results = graph_results or []
         graph_score, graph_entities, neighborhood = self.boundary.assess_graph_coverage(
             normalized_query, graph_results
         )
+        logger.info("📊 Processing embeddings...")
         scores = [s for _, s in self.relevance.score_passages(normalized_query, retrieved_passages)]
         boosted_scores: List[float] = []
         for passage, score in zip(retrieved_passages, scores):
@@ -470,4 +474,5 @@ class MultiLayerOODDetector:
             result["response_verified"] = verified
             result["verification_signals"] = verification
 
+        logger.info("✅ Analysis complete")
         return result

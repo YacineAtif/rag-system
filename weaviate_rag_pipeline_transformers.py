@@ -5,6 +5,7 @@ import requests
 import json
 import logging
 import argparse
+import warnings
 from pathlib import Path
 from typing import List, Dict, Optional, Tuple
 from backend.config import Config
@@ -26,6 +27,25 @@ from multi_layer_ood import (
 )
 
 os.environ["TOKENIZERS_PARALLELISM"] = "false"
+os.environ["HF_HUB_DISABLE_PROGRESS_BARS"] = "true"
+os.environ["TF_CPP_MIN_LOG_LEVEL"] = "2"
+
+warnings.filterwarnings('ignore', category=ResourceWarning)
+warnings.filterwarnings('ignore', category=DeprecationWarning, module='neo4j')
+warnings.filterwarnings('ignore', message='.*unclosed.*')
+warnings.filterwarnings('ignore', message='.*destructor.*')
+
+try:
+    from transformers import logging as transformers_logging
+    transformers_logging.set_verbosity_error()
+except ImportError:  # pragma: no cover
+    pass
+
+try:
+    import tensorflow as tf
+    tf.get_logger().setLevel('ERROR')
+except Exception:  # pragma: no cover
+    pass
 
 CONFIG = Config()
 
@@ -47,6 +67,11 @@ def setup_logging(config):
     if config.get('logging', {}).get('enable_debug_components', False):
         for component in ['multi_layer_ood', 'graph_semantic_analyzer', 'query_normalizer']:
             logging.getLogger(component).setLevel(logging.DEBUG)
+
+    if not config.get('logging', {}).get('show_progress_bars', False):
+        os.environ['HF_HUB_DISABLE_PROGRESS_BARS'] = 'true'
+    if config.get('logging', {}).get('suppress_warnings', False):
+        warnings.filterwarnings('ignore')
 
 
 def parse_args():

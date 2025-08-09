@@ -67,6 +67,9 @@ logging:
     query_normalizer: INFO
     main: INFO
   file: "logs/rag_system.log"
+  suppress_warnings: true
+  show_progress_bars: false
+  clean_output: true
 
 hardware:
   use_gpu: false
