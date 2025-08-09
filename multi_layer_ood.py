@@ -262,7 +262,17 @@ class ContextRelevanceAssessor:
     def _get_embedding(self, text: str) -> np.ndarray:
         if text not in self._embedding_cache:
             if self._use_transformer:
-                emb = self._embedder.encode(text, normalize_embeddings=True, show_progress_bar=False)
+                print("🔍 Thinking...")
+                emb = np.asarray(
+                    self._embedder.encode(
+                        text,
+                        normalize_embeddings=True,
+                        show_progress_bar=False,
+                        convert_to_tensor=False,
+                    ),
+                    dtype=np.float32,
+                )
+                print("✅ Analysis complete")
                 self.logger.debug("Embedding for '%s' shape=%s", text, emb.shape)
             else:  # pragma: no cover - simple hashing fallback
                 emb = self._vectorizer.transform([text]).toarray()[0]

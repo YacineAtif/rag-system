@@ -35,7 +35,18 @@ class DomainConceptRegistry:
 
     def _embed(self, text: str) -> np.ndarray:
         if self._use_transformer:
-            return self._embedder.encode(text, normalize_embeddings=True, show_progress_bar=False)
+            print("🔍 Thinking...")
+            emb = np.asarray(
+                self._embedder.encode(
+                    text,
+                    normalize_embeddings=True,
+                    show_progress_bar=False,
+                    convert_to_tensor=False,
+                ),
+                dtype=np.float32,
+            )
+            print("✅ Analysis complete")
+            return emb
         return self._vectorizer.transform([text]).toarray()[0]
 
     def resolve(self, term: str) -> str:

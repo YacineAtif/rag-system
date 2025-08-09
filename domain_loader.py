@@ -263,8 +263,12 @@ def setup_domain_knowledge_base(documents_folder: str = "documents"):
         print("📚 Setting up indexing pipeline...")
         indexing_pipeline = Pipeline()
         indexing_pipeline.add_component(
-            "embedder", 
-            SentenceTransformersDocumentEmbedder(model="sentence-transformers/all-MiniLM-L6-v2")
+            "embedder",
+            SentenceTransformersDocumentEmbedder(
+                model="sentence-transformers/all-MiniLM-L6-v2",
+                progress_bar=False,
+                encode_kwargs={"show_progress_bar": False, "convert_to_tensor": False},
+            )
         )
         indexing_pipeline.add_component("writer", DocumentWriter(document_store=document_store))
         indexing_pipeline.connect("embedder", "writer")
