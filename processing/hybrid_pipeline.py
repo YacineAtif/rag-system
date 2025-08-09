@@ -48,7 +48,7 @@ class HybridPipeline:
         self.legacy_pipeline = None
 
         # Setup logging
-        logging.basicConfig(level=logging.INFO)
+        logging.basicConfig(level=logging.WARNING)
         logger.info("HybridPipeline instance created")
 
     def _is_factual(self, question: str) -> bool:

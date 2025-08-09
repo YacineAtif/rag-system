@@ -344,7 +344,7 @@ def build_knowledge_graph(
     pruned based on a confidence threshold.
     """
 
-    logging.basicConfig(level=logging.INFO)
+    logging.basicConfig(level=logging.WARNING)
 
     if load_documents_from_folder is None:
         logger.error("domain_loader module not available")
