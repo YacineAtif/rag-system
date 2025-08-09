@@ -1261,7 +1261,9 @@ class RAGPipeline:
             return
 
         doc_embedder = SentenceTransformersDocumentEmbedder(
-            model="sentence-transformers/all-MiniLM-L6-v2"
+            model="sentence-transformers/all-MiniLM-L6-v2",
+            progress_bar=False,
+            encode_kwargs={"show_progress_bar": False, "convert_to_tensor": False},
         )
         print("🔥 Warming up document embedder...")
         doc_embedder.warm_up()
@@ -1327,8 +1329,6 @@ class RAGPipeline:
 
     def query_with_graph(self, query):
         """Phase 2: Hybrid query using both vector search and graph traversal"""
-        print("🔍 Phase 2: Hybrid retrieval (Vector + Graph)...")
-
         hybrid_results = self.hybrid_router.hybrid_retrieve(query)
 
         retrieved_passages = [
@@ -1464,6 +1464,8 @@ def main():
     # Create retriever for hybrid queries
     text_embedder = SentenceTransformersTextEmbedder(
         model="sentence-transformers/all-MiniLM-L6-v2",
+        progress_bar=False,
+        encode_kwargs={"show_progress_bar": False, "convert_to_tensor": False},
     )
     # Warm up the text embedder before any usage
     print("🔥 Warming up text embedder...")
@@ -1491,9 +1493,11 @@ def main():
         if query.lower() == 'quit':
             break
 
+        print("🔍 Thinking...")
         start_time = time.time()
         result = pipeline.query_with_graph(query)
         elapsed = time.time() - start_time
+        print("✅ Ready")
 
         print(f"\n💬 Answer (in {elapsed:.2f}s):")
         print("-" * 60)

@@ -167,7 +167,11 @@ def _vector_search(query: str, config: Config):
         return []
 
     document_store = WeaviateDocumentStore(url=config.weaviate.url)
-    embedder = SentenceTransformersTextEmbedder(model=config.embedding.model_name)
+    embedder = SentenceTransformersTextEmbedder(
+        model=config.embedding.model_name,
+        progress_bar=False,
+        encode_kwargs={"show_progress_bar": False, "convert_to_tensor": False},
+    )
     retriever = WeaviateEmbeddingRetriever(document_store=document_store)
 
     pipeline = Pipeline()
