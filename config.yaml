@@ -4,6 +4,35 @@ chunk_processing:
   add_section_markers: true
   max_context_length: 100
   section_patterns:
+
+    - "^#{1,6}\\s+(.+)"
+    - "^\\*\\*(.+)\\*\\*:?"
+    - "^\\d+\\.\\s+(.+)"
+
+# Logging Configuration
+# level: Global logging level (DEBUG, INFO, WARNING, ERROR)
+# enable_debug_components: Enable debug logging for OOD detection components
+# components: Per-component logging levels for fine-grained control
+logging:
+  level: INFO
+  enable_debug_components: false
+  components:
+    httpcore: WARNING
+    anthropic: WARNING
+    urllib3: WARNING
+    neo4j: WARNING
+    httpx: WARNING
+    sentence_transformers: WARNING
+    multi_layer_ood: INFO
+    graph_semantic_analyzer: INFO
+    query_normalizer: INFO
+    main: INFO
+  file: "logs/rag_system.log"
+  suppress_warnings: true
+  show_progress_bars: false
+  clean_output: true
+
+=======
   - ^#{1,6}\s+(.+)
   - ^\*\*(.+)\*\*:?
   - ^\d+\.\s+(.+)
@@ -17,6 +46,7 @@ development: true
 documents_folder: documents
 embedding:
   model_name: sentence-transformers/all-MiniLM-L6-v2
+
 hardware:
   num_threads: 4
   use_gpu: false

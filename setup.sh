@@ -13,6 +13,11 @@ fi
 echo "⚡ Activating virtual environment..."
 source rag-env/bin/activate
 
+# Set environment variables to suppress extraneous output
+export TOKENIZERS_PARALLELISM=false
+export HF_HUB_DISABLE_PROGRESS_BARS=true
+export TF_CPP_MIN_LOG_LEVEL=2
+
 # Upgrade pip and install dependencies
 echo "🔧 Installing dependencies..."
 pip install --upgrade pip wheel
