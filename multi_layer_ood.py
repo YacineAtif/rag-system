@@ -125,9 +125,7 @@ class DomainBoundaryDetector:
     def embedding_similarity(self, similarity: float) -> bool:
         return similarity >= self.cfg.similarity_threshold
 
-    def assess_graph_coverage(
-        self, query: str, graph_results: Sequence[object]
-    ) -> Tuple[float, List[str], List[str]]:
+    def assess_graph_coverage(self, query: str, graph_results: Sequence[str]) -> Tuple[float, List[str], List[str]]:
         """Analyze graph results for semantic coverage of the query."""
 
         score, entities, neighborhood = self.graph_analyzer.analyze(query, graph_results)
@@ -338,8 +336,8 @@ class ResponseVerifier:
         self,
         answer: str,
         context: Sequence[str],
-        token_probs: Sequence[float] | None = None,
-        attention: Sequence[float] | None = None,
+        token_probs: Optional[Sequence[float]] = None,
+        attention: Optional[Sequence[float]] = None,
     ) -> Tuple[bool, Dict[str, float]]:
         """Return pass/fail along with uncertainty signals."""
 
@@ -385,7 +383,7 @@ class ResponseVerifier:
 class MultiLayerOODDetector:
     """High level orchestrator for the multi-layer OOD system."""
 
-    def __init__(self, config: OODDetectionConfig | None = None):
+    def __init__(self, config: Optional[OODDetectionConfig] = None):
         self.cfg = config or OODDetectionConfig()
         self.query_analyzer = QueryAnalyzer()
         concepts = ["sample", "theory", "widget", "system"]
@@ -404,7 +402,7 @@ class MultiLayerOODDetector:
         similarity: float,
         retrieved_passages: Sequence[str],
         token_probs: Sequence[float],
-        graph_results: Sequence[object] | None = None,
+        graph_results: Optional[Sequence[str]] = None,
         answer: Optional[str] = None,
         attention: Optional[Sequence[float]] = None,
     ) -> Dict[str, object]:
