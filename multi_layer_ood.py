@@ -125,7 +125,9 @@ class DomainBoundaryDetector:
     def embedding_similarity(self, similarity: float) -> bool:
         return similarity >= self.cfg.similarity_threshold
 
-    def assess_graph_coverage(self, query: str, graph_results: Sequence[str]) -> Tuple[float, List[str], List[str]]:
+    def assess_graph_coverage(
+        self, query: str, graph_results: Sequence[object]
+    ) -> Tuple[float, List[str], List[str]]:
         """Analyze graph results for semantic coverage of the query."""
 
         score, entities, neighborhood = self.graph_analyzer.analyze(query, graph_results)
@@ -402,7 +404,7 @@ class MultiLayerOODDetector:
         similarity: float,
         retrieved_passages: Sequence[str],
         token_probs: Sequence[float],
-        graph_results: Sequence[str] | None = None,
+        graph_results: Sequence[object] | None = None,
         answer: Optional[str] = None,
         attention: Optional[Sequence[float]] = None,
     ) -> Dict[str, object]:
