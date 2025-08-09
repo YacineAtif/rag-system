@@ -1281,14 +1281,13 @@ class RAGPipeline:
         ]
         graph_count = len(hybrid_results["graph_results"])
         similarity = self._embedding_similarity(query)
-        graph_connectivity = graph_count / max(len(retrieved_passages), 1)
 
         detection = self.ood_detector.process(
             query=query,
             similarity=similarity,
-            graph_connectivity=graph_connectivity,
             retrieved_passages=retrieved_passages,
             token_probs=[0.9],
+            graph_results=hybrid_results["graph_results"],
         )
 
         logger.debug("Multi-layer OOD detection result: %s", detection)
