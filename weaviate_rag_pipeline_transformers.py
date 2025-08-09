@@ -1005,24 +1005,34 @@ Extract ALL mentioned entities and relationships from the provided text.""",
                 result = session.run(
                     """
                     MATCH (n)-[r]-(m)
-                    WHERE any(val IN [v IN properties(n) | toLower(toString(v))] WHERE val CONTAINS $search_term)
-                       OR any(val IN [v IN properties(m) | toLower(toString(v))] WHERE val CONTAINS $search_term)
-                    RETURN n.name AS source, type(r) AS relationship, m.name AS target
+                    WHERE any(key IN keys(n) WHERE toLower(toString(n[key])) CONTAINS $search_term)
+                       OR any(key IN keys(m) WHERE toLower(toString(m[key])) CONTAINS $search_term)
+                    RETURN coalesce(n.name, toString(id(n))) AS source,
+                           type(r) AS relationship,
+                           coalesce(m.name, toString(id(m))) AS target
                     LIMIT $limit
                     """,
                     search_term=term,
                     limit=limit,
                 )
-                return [
-                    {
-                        "source": record["source"],
-                        "relationship": record["relationship"],
-                        "target": record["target"],
-                        "relevance_score": 0.5,
-                        "search_strategy": "content_based",
-                    }
-                    for record in result
-                ]
+                records = []
+                for record in result:
+                    source = record.get("source")
+                    relationship = record.get("relationship")
+                    target = record.get("target")
+                    if source is None or relationship is None or target is None:
+                        logger.debug("Skipping incomplete content record: %s", record)
+                        continue
+                    records.append(
+                        {
+                            "source": source,
+                            "relationship": relationship,
+                            "target": target,
+                            "relevance_score": 0.5,
+                            "search_strategy": "content_based",
+                        }
+                    )
+                return records
         except Exception as e:
             logger.warning("Content-based search failed: %s", e)
             return []
