@@ -14,6 +14,11 @@ from backend.llm_generator import LLMGenerator
 from neo4j import GraphDatabase
 import subprocess
 import yaml
+import warnings
+warnings.filterwarnings('ignore', message='.*Protobuf gencode version.*')
+warnings.filterwarnings('ignore', category=UserWarning, module='google.protobuf')
+
+
 import numpy as np
 import torch
 from sentence_transformers import util
@@ -1263,7 +1268,7 @@ class RAGPipeline:
         doc_embedder = SentenceTransformersDocumentEmbedder(
             model="sentence-transformers/all-MiniLM-L6-v2",
             progress_bar=False,
-            encode_kwargs={"show_progress_bar": False, "convert_to_tensor": False},
+            encode_kwargs={"convert_to_tensor": False},
         )
         print("🔥 Warming up document embedder...")
         doc_embedder.warm_up()
@@ -1465,7 +1470,7 @@ def main():
     text_embedder = SentenceTransformersTextEmbedder(
         model="sentence-transformers/all-MiniLM-L6-v2",
         progress_bar=False,
-        encode_kwargs={"show_progress_bar": False, "convert_to_tensor": False},
+        encode_kwargs={"convert_to_tensor": False},
     )
     # Warm up the text embedder before any usage
     print("🔥 Warming up text embedder...")
