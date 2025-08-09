@@ -4,6 +4,7 @@ import time
 import requests
 import json
 import logging
+import argparse
 from pathlib import Path
 from typing import List, Dict, Optional, Tuple
 from backend.config import Config
@@ -28,8 +29,37 @@ os.environ["TOKENIZERS_PARALLELISM"] = "false"
 
 CONFIG = Config()
 
-logging.basicConfig(level=logging.DEBUG)
+logging.basicConfig()
 logger = logging.getLogger(__name__)
+
+
+def setup_logging(config):
+    """Configure logging based on config settings"""
+    root_level_name = config.get('logging', {}).get('level', 'INFO')
+    root_level = getattr(logging, root_level_name.upper(), logging.INFO)
+    logging.getLogger().setLevel(root_level)
+
+    components = config.get('logging', {}).get('components', {})
+    for component, level in components.items():
+        log_level = getattr(logging, level.upper(), logging.INFO)
+        logging.getLogger(component).setLevel(log_level)
+
+    if config.get('logging', {}).get('enable_debug_components', False):
+        for component in ['multi_layer_ood', 'graph_semantic_analyzer', 'query_normalizer']:
+            logging.getLogger(component).setLevel(logging.DEBUG)
+
+
+def parse_args():
+    parser = argparse.ArgumentParser(description="Weaviate RAG pipeline")
+    parser.add_argument('--debug', action='store_true',
+                       help='Enable debug logging (overrides config)')
+    parser.add_argument('--verbose', '-v', action='store_true',
+                       help='Enable verbose output for all components')
+    parser.add_argument('--log-level', choices=['DEBUG', 'INFO', 'WARNING', 'ERROR'],
+                       help='Set logging level (overrides config)')
+    parser.add_argument('--rebuild-graph', action='store_true',
+                       help='Force rebuild of graph')
+    return parser.parse_args()
 
 
 def load_ood_config() -> OODDetectionConfig:
@@ -1344,12 +1374,41 @@ def check_docker_containers():
         return False
 
 def main():
+    args = parse_args()
+
+    # Load config
+    with open('config.yaml', 'r') as f:
+        config = yaml.safe_load(f)
+
+    # Check environment variables
+    debug_env = os.getenv('RAG_DEBUG', '').lower() in ('true', '1', 'yes')
+    verbose_env = os.getenv('RAG_VERBOSE', '').lower() in ('true', '1', 'yes')
+    if debug_env:
+        config.setdefault('logging', {})['enable_debug_components'] = True
+    if verbose_env:
+        config.setdefault('logging', {})['level'] = 'DEBUG'
+
+    # Apply command line overrides
+    if args.debug:
+        config.setdefault('logging', {})['enable_debug_components'] = True
+        config['logging']['level'] = 'DEBUG'
+
+    if args.verbose:
+        config.setdefault('logging', {})['level'] = 'DEBUG'
+        for component in config['logging'].get('components', {}):
+            config['logging']['components'][component] = 'DEBUG'
+
+    if args.log_level:
+        config.setdefault('logging', {})['level'] = args.log_level
+
+    # Setup logging
+    setup_logging(config)
+
     print("🤖 Domain-Restricted RAG System (Haystack v2)")
     print("=" * 70)
 
-    import sys
     # Check for force rebuild flag
-    force_rebuild = "--rebuild-graph" in sys.argv
+    force_rebuild = args.rebuild_graph
 
     # Start infrastructure if needed
     if check_docker_containers():
