@@ -1,123 +1,107 @@
-# RAG System Configuration for Claude Haiku
-
-documents_folder: "documents"
-chunk_size: 2000
 chunk_overlap: 200
-development: true
-
-weaviate:
-  url: "http://localhost:8080"
-  index_name: "rag_docs"
-
-embedding:
-  model_name: "sentence-transformers/all-MiniLM-L6-v2"
-
-neo4j:
-  uri: "bolt://localhost:7687"
-  user: "neo4j"
-  password: "password"
-
-claude:
-  api_key: ""
-  model_name: "claude-3-5-haiku-20241022"
-  max_tokens: 1000
-  temperature: 0.1
-
-retrieval:
-  default_top_k: 5
-  partnership_top_k: 7
-  factual_top_k: 4
-  similarity_threshold: 0.3
-  enable_section_reranking: true
-  section_name_boost: 3.0
-
-prompting:
-  context_instructions:
-    partnership: "Focus on specific organization names, roles, and contributions."
-    technical: "Provide detailed technical information."
-    factual: "Extract the most accurate and specific factual information."
-    methodology: "Explain the methodology or approach in detail."
-    general: "Synthesize the information into coherent, natural language."
-
 chunk_processing:
-  add_section_markers: true
   add_metadata_context: true
+  add_section_markers: true
   max_context_length: 100
   section_patterns:
-    - "^#{1,6}\\s+(.+)"
-    - "^\\*\\*(.+)\\*\\*:?"
-    - "^\\d+\\.\\s+(.+)"
-
-# Logging Configuration
-# level: Global logging level (DEBUG, INFO, WARNING, ERROR)
-# enable_debug_components: Enable debug logging for OOD detection components
-# components: Per-component logging levels for fine-grained control
-logging:
-  level: INFO
-  enable_debug_components: false
-  components:
-    httpcore: WARNING
-    anthropic: WARNING
-    urllib3: WARNING
-    neo4j: WARNING
-    httpx: WARNING
-    sentence_transformers: WARNING
-    multi_layer_ood: INFO
-    graph_semantic_analyzer: INFO
-    query_normalizer: INFO
-    main: INFO
-  file: "logs/rag_system.log"
-
+  - ^#{1,6}\s+(.+)
+  - ^\*\*(.+)\*\*:?
+  - ^\d+\.\s+(.+)
+chunk_size: 2000
+claude:
+  api_key: ''
+  max_tokens: 1000
+  model_name: claude-3-5-haiku-20241022
+  temperature: 0.1
+development: true
+documents_folder: documents
+embedding:
+  model_name: sentence-transformers/all-MiniLM-L6-v2
 hardware:
-  use_gpu: false
   num_threads: 4
-
+  use_gpu: false
+logging:
+  file: logs/rag_system.log
+  level: INFO
+neo4j:
+  password: password
+  uri: bolt://localhost:7687
+  user: neo4j
 ood:
-  enabled: true
-  similarity_threshold: 0.25
-  similarity_check_enabled: true
   domain_keywords:
-    - evidence theory
-  min_neo4j_relations: 1
-
-ood_detection:
+  - evidence theory
   enabled: true
-  # Multi-layered thresholds
-  similarity_threshold: 0.15
-  graph_connectivity_threshold: 0.6
-  context_quality_threshold: 0.7
-  generation_confidence_threshold: 0.8
-
-  # Hierarchical keyword system with weighting
-  keywords:
-    tier_1_critical:
-      core_concepts: ["evidence theory", "dempster shafer", "uncertainty reasoning"]
-      projects: ["i2connect", "concept 1", "simulation framework"]
-      organizations: ["scania", "smart eye", "university of skövde", "viscando"]
-    tier_2_important:
-      technologies: ["driver monitoring", "gaze tracking", "adas", "vehicle sensors"]
-      safety_terms: ["traffic safety", "road safety", "collision avoidance"]
-    tier_3_contextual:
-      general_terms: ["system", "analysis", "monitoring", "detection"]
-
-  # Quality control parameters
-  quality_gates:
-    min_context_relevance: 0.5
-    min_passage_count: 2
-    max_contradiction_score: 0.3
-    min_information_density: 0.4
-
-  # Abstention behavior
+  min_neo4j_relations: 1
+  similarity_check_enabled: true
+  similarity_threshold: 0.25
+ood_detection:
   abstention:
+    confidence_explanation: true
+    enable_clarification_requests: true
     enable_informed_refusal: true
     enable_partial_answers: true
-    enable_clarification_requests: true
-    confidence_explanation: true
-
+  context_quality_threshold: 0.7
+  enabled: true
+  generation_confidence_threshold: 0.4
+  graph_connectivity_threshold: 0.6
+  keywords:
+    tier_1_critical:
+      core_concepts:
+      - evidence theory
+      - dempster shafer
+      - uncertainty reasoning
+      organizations:
+      - scania
+      - smart eye
+      - "university of sk\xF6vde"
+      - viscando
+      projects:
+      - i2connect
+      - concept 1
+      - simulation framework
+    tier_2_important:
+      safety_terms:
+      - traffic safety
+      - road safety
+      - collision avoidance
+      technologies:
+      - driver monitoring
+      - gaze tracking
+      - adas
+      - vehicle sensors
+    tier_3_contextual:
+      general_terms:
+      - system
+      - analysis
+      - monitoring
+      - detection
+  quality_gates:
+    max_contradiction_score: 0.3
+    min_context_relevance: 0.5
+    min_information_density: 0.4
+    min_passage_count: 2
   response_verification:
-    relevance_threshold: 0.4
-    min_relevant_passages: 2
-    lexical_similarity_threshold: 0.5
+    lexical_similarity_threshold: 0.3
     max_entropy_threshold: 2.0
     mean_entropy_threshold: 1.5
+    min_relevant_passages: 2
+    relevance_threshold: 0.15
     sar_threshold: 0.0
+  similarity_threshold: 0.15
+prompting:
+  context_instructions:
+    factual: Extract the most accurate and specific factual information.
+    general: Synthesize the information into coherent, natural language.
+    methodology: Explain the methodology or approach in detail.
+    partnership: Focus on specific organization names, roles, and contributions.
+    technical: Provide detailed technical information.
+retrieval:
+  default_top_k: 5
+  enable_section_reranking: true
+  factual_top_k: 4
+  partnership_top_k: 7
+  section_name_boost: 3.0
+  similarity_threshold: 0.3
+weaviate:
+  index_name: rag_docs
+  url: http://localhost:8080
