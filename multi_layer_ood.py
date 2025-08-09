@@ -16,6 +16,10 @@ import numpy as np
 from sentence_transformers import SentenceTransformer
 from sklearn.feature_extraction.text import HashingVectorizer
 
+from domain_concept_registry import DomainConceptRegistry
+from graph_semantic_analyzer import GraphSemanticAnalyzer
+from query_normalizer import QueryNormalizer
+
 
 @dataclass
 class KeywordTiers:
@@ -99,8 +103,9 @@ class QueryAnalyzer:
 class DomainBoundaryDetector:
     """Combine multiple signals to decide whether the query is in-domain."""
 
-    def __init__(self, config: OODDetectionConfig):
+    def __init__(self, config: OODDetectionConfig, graph_analyzer: "GraphSemanticAnalyzer"):
         self.cfg = config
+        self.graph_analyzer = graph_analyzer
         self.logger = logging.getLogger(__name__ + ".DomainBoundaryDetector")
 
     def _keyword_score(self, query: str) -> float:
@@ -120,19 +125,40 @@ class DomainBoundaryDetector:
     def embedding_similarity(self, similarity: float) -> bool:
         return similarity >= self.cfg.similarity_threshold
 
+    def assess_graph_coverage(self, query: str, graph_results: Sequence[str]) -> Tuple[float, List[str], List[str]]:
+        """Analyze graph results for semantic coverage of the query."""
+
+        score, entities, neighborhood = self.graph_analyzer.analyze(query, graph_results)
+        self.logger.debug(
+            "Graph coverage score=%.3f entities=%s neighborhood=%s",
+            score,
+            entities,
+            neighborhood,
+        )
+        return score, entities, neighborhood
+
     def check(
-        self, query: str, similarity: float = 1.0, graph_connectivity: float = 1.0
+        self,
+        query: str,
+        similarity: float,
+        retrieval_quality: float,
+        graph_semantic_score: float,
     ) -> Tuple[bool, Dict[str, float]]:
-        """Return True if all boundary signals pass configured thresholds."""
+        """Return True if boundary signals indicate an in-domain query."""
 
         kw = self._keyword_score(query)
-        sim_ok = self.embedding_similarity(similarity)
-        graph_ok = graph_connectivity >= self.cfg.graph_connectivity_threshold
-        passed = kw >= 0.5 and sim_ok and graph_ok
+        sim_threshold = self.cfg.similarity_threshold
+        if graph_semantic_score >= 0.7:
+            sim_threshold *= 0.5  # strong graph evidence lowers similarity requirement
+        sim_ok = similarity >= sim_threshold
+        final_score = 0.4 * similarity + 0.3 * graph_semantic_score + 0.3 * retrieval_quality
+        passed = graph_semantic_score >= 0.7 or (kw >= 0.5 and sim_ok and final_score >= 0.5)
         signals = {
             "keyword_score": kw,
             "similarity": similarity,
-            "graph_connectivity": graph_connectivity,
+            "retrieval_quality": retrieval_quality,
+            "graph_semantic_score": graph_semantic_score,
+            "final_score": final_score,
         }
         self.logger.debug("Domain boundary signals: %s", signals)
         return passed, signals
@@ -360,7 +386,11 @@ class MultiLayerOODDetector:
     def __init__(self, config: OODDetectionConfig | None = None):
         self.cfg = config or OODDetectionConfig()
         self.query_analyzer = QueryAnalyzer()
-        self.boundary = DomainBoundaryDetector(self.cfg)
+        concepts = ["sample", "theory", "widget", "system"]
+        self.registry = DomainConceptRegistry(concepts)
+        self.normalizer = QueryNormalizer(self.registry)
+        self.graph_analyzer = GraphSemanticAnalyzer(self.registry)
+        self.boundary = DomainBoundaryDetector(self.cfg, self.graph_analyzer)
         self.retrieval = RetrievalQualityGate(self.cfg)
         self.guard = GenerationGuard(self.cfg)
         self.relevance = ContextRelevanceAssessor(self.cfg.response_verification)
@@ -370,27 +400,43 @@ class MultiLayerOODDetector:
         self,
         query: str,
         similarity: float,
-        graph_connectivity: float,
         retrieved_passages: Sequence[str],
         token_probs: Sequence[float],
+        graph_results: Sequence[str] | None = None,
         answer: Optional[str] = None,
         attention: Optional[Sequence[float]] = None,
     ) -> Dict[str, object]:
         """Run all OOD checks and optional response verification."""
 
-        analysis = self.query_analyzer.analyze(query)
+        normalized_query, matched = self.normalizer.normalize(query)
+        analysis = self.query_analyzer.analyze(normalized_query)
+        graph_results = graph_results or []
+        graph_score, graph_entities, neighborhood = self.boundary.assess_graph_coverage(
+            normalized_query, graph_results
+        )
+        scores = [s for _, s in self.relevance.score_passages(normalized_query, retrieved_passages)]
+        boosted_scores: List[float] = []
+        for passage, score in zip(retrieved_passages, scores):
+            if any(ent in passage.lower() for ent in neighborhood):
+                boosted_scores.append(min(1.0, score + 0.1))
+            else:
+                boosted_scores.append(score)
+        relevant_passages = [
+            p
+            for p, s in zip(retrieved_passages, boosted_scores)
+            if s >= self.cfg.response_verification.relevance_threshold
+        ]
+        retrieval_ok, retrieval_signals = self.retrieval.evaluate(boosted_scores)
+        avg_rel = retrieval_signals.get("avg_relevance", 0.0)
         in_domain, boundary_signals = self.boundary.check(
-            query, similarity, graph_connectivity
+            normalized_query, similarity, avg_rel, graph_score
         )
-        relevant_passages, relevance_scores = self.relevance.filter_relevant(
-            query, retrieved_passages
-        )
-        retrieval_ok, retrieval_signals = self.retrieval.evaluate(relevance_scores)
         confidence, gen_allowed = self.guard.evaluate(token_probs)
-        allow_generation = in_domain and retrieval_ok and gen_allowed
+        final_score = 0.4 * similarity + 0.3 * graph_score + 0.3 * avg_rel
+        allow_generation = (in_domain and retrieval_ok and gen_allowed) or graph_score >= 0.7
         abstention_reason = ""
         if not allow_generation:
-            if not in_domain:
+            if not in_domain and graph_score < 0.7:
                 abstention_reason = "out-of-domain"
             elif not retrieval_ok:
                 abstention_reason = "insufficient context"
@@ -407,8 +453,12 @@ class MultiLayerOODDetector:
             "allow_generation": allow_generation,
             "abstain": not allow_generation,
             "abstention_reason": abstention_reason,
-            "relevance_scores": relevance_scores,
+            "relevance_scores": boosted_scores,
             "relevant_passages": relevant_passages,
+            "graph_semantic_score": graph_score,
+            "graph_entities": graph_entities,
+            "graph_neighborhood": neighborhood,
+            "final_score": final_score,
         }
 
         if answer is not None:
