@@ -48,8 +48,24 @@ chunk_processing:
     - "^\\*\\*(.+)\\*\\*:?"
     - "^\\d+\\.\\s+(.+)"
 
+# Logging Configuration
+# level: Global logging level (DEBUG, INFO, WARNING, ERROR)
+# enable_debug_components: Enable debug logging for OOD detection components
+# components: Per-component logging levels for fine-grained control
 logging:
-  level: "INFO"
+  level: INFO
+  enable_debug_components: false
+  components:
+    httpcore: WARNING
+    anthropic: WARNING
+    urllib3: WARNING
+    neo4j: WARNING
+    httpx: WARNING
+    sentence_transformers: WARNING
+    multi_layer_ood: INFO
+    graph_semantic_analyzer: INFO
+    query_normalizer: INFO
+    main: INFO
   file: "logs/rag_system.log"
 
 hardware:
