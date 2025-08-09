@@ -60,13 +60,13 @@ logger = logging.getLogger(__name__)
 
 def setup_logging(config):
     """Configure logging based on config settings"""
-    root_level_name = config.get('logging', {}).get('level', 'INFO')
-    root_level = getattr(logging, root_level_name.upper(), logging.INFO)
+    root_level_name = config.get('logging', {}).get('level', 'WARNING')
+    root_level = getattr(logging, root_level_name.upper(), logging.WARNING)
     logging.getLogger().setLevel(root_level)
 
     components = config.get('logging', {}).get('components', {})
     for component, level in components.items():
-        log_level = getattr(logging, level.upper(), logging.INFO)
+        log_level = getattr(logging, level.upper(), logging.WARNING)
         logging.getLogger(component).setLevel(log_level)
 
     if config.get('logging', {}).get('enable_debug_components', False):
@@ -1490,25 +1490,14 @@ def main():
         pipeline.populate_knowledge_graph()
 
     # PHASE 2: Interactive Q&A with hybrid retrieval
-    print("\n💬 Hybrid Q&A (Vector + Knowledge Graph)")
-    print("Ask questions about partnerships, collaborations, or general content.")
-
     while True:
         query = input("\n❓ You: ").strip()
         if query.lower() == 'quit':
             break
 
         print("🔍 Thinking...")
-        start_time = time.time()
         result = pipeline.query_with_graph(query)
-        elapsed = time.time() - start_time
-        print("✅ Ready")
-
-        print(f"\n💬 Answer (in {elapsed:.2f}s):")
-        print("-" * 60)
         print(result["answer"])
-        print(f"\n📊 Retrieved: {result['vector_results']} vector + {result['graph_results']} graph results")
-        print("-" * 60)
 
 
 if __name__ == "__main__":

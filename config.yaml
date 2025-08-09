@@ -50,7 +50,7 @@ chunk_processing:
 
 # Logging Configuration
 logging:
-  level: INFO
+  level: WARNING
   enable_debug_components: false
   components:
     httpcore: WARNING
@@ -59,10 +59,10 @@ logging:
     neo4j: WARNING
     httpx: WARNING
     sentence_transformers: WARNING
-    multi_layer_ood: INFO
-    graph_semantic_analyzer: INFO
-    query_normalizer: INFO
-    main: INFO
+    multi_layer_ood: WARNING
+    graph_semantic_analyzer: WARNING
+    query_normalizer: WARNING
+    main: WARNING
   file: "logs/rag_system.log"
   suppress_warnings: true
   show_progress_bars: false
