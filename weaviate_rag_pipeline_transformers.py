@@ -890,7 +890,7 @@ Extract ALL mentioned entities and relationships from the provided text.""",
         try:
             entity_results = self._search_by_entities(query, limit)
         except Exception as e:
-            logger.error("Entity search failed: %s", e)
+            logger.warning("Entity search failed: %s", e)
             entity_results = []
         if entity_results:
             logger.info("Graph search using strategy 'entity_match'")
@@ -899,7 +899,7 @@ Extract ALL mentioned entities and relationships from the provided text.""",
         try:
             relationship_results = self._search_by_relationships(query, limit)
         except Exception as e:
-            logger.error("Relationship search failed: %s", e)
+            logger.warning("Relationship search failed: %s", e)
             relationship_results = []
         if relationship_results:
             logger.info("Graph search using strategy 'relationship_based'")
@@ -908,7 +908,7 @@ Extract ALL mentioned entities and relationships from the provided text.""",
         try:
             content_results = self._search_by_content(query, limit)
         except Exception as e:
-            logger.error("Content search failed: %s", e)
+            logger.warning("Content search failed: %s", e)
             content_results = []
         if content_results:
             logger.info("Graph search using strategy 'content_based'")
@@ -917,7 +917,7 @@ Extract ALL mentioned entities and relationships from the provided text.""",
         try:
             fallback_results = self._get_most_connected_nodes(limit)
         except Exception as e:
-            logger.error("Structural fallback search failed: %s", e)
+            logger.warning("Structural fallback search failed: %s", e)
             fallback_results = []
         logger.info("Graph search using strategy 'structural_fallback'")
         return fallback_results[:limit]
@@ -948,7 +948,7 @@ Extract ALL mentioned entities and relationships from the provided text.""",
                     for record in result
                 ]
         except Exception as e:
-            logger.error("Entity search query failed: %s", e)
+            logger.warning("Entity search query failed: %s", e)
             return []
 
     def _search_by_relationships(self, query, limit):
@@ -994,7 +994,7 @@ Extract ALL mentioned entities and relationships from the provided text.""",
                     for record in result
                 ]
         except Exception as e:
-            logger.error("Relationship search query failed: %s", e)
+            logger.warning("Relationship search query failed: %s", e)
             return []
 
     def _search_by_content(self, query, limit):
@@ -1005,9 +1005,9 @@ Extract ALL mentioned entities and relationships from the provided text.""",
                 result = session.run(
                     """
                     MATCH (n)-[r]-(m)
-                    WHERE ANY(prop IN keys(n) WHERE ANY(val IN (CASE WHEN n[prop] IS LIST THEN n[prop] ELSE [n[prop]] END) WHERE toLower(toString(val)) CONTAINS $search_term))
-                       OR ANY(prop IN keys(m) WHERE ANY(val IN (CASE WHEN m[prop] IS LIST THEN m[prop] ELSE [m[prop]] END) WHERE toLower(toString(val)) CONTAINS $search_term))
-                    RETURN n.name as source, type(r) as relationship, m.name as target
+                    WHERE any(val IN [v IN properties(n) | toLower(toString(v))] WHERE val CONTAINS $search_term)
+                       OR any(val IN [v IN properties(m) | toLower(toString(v))] WHERE val CONTAINS $search_term)
+                    RETURN n.name AS source, type(r) AS relationship, m.name AS target
                     LIMIT $limit
                     """,
                     search_term=term,
@@ -1024,7 +1024,7 @@ Extract ALL mentioned entities and relationships from the provided text.""",
                     for record in result
                 ]
         except Exception as e:
-            logger.error("Content-based search failed: %s", e)
+            logger.warning("Content-based search failed: %s", e)
             return []
 
     def _get_most_connected_nodes(self, limit):
@@ -1054,7 +1054,7 @@ Extract ALL mentioned entities and relationships from the provided text.""",
                     for record in records
                 ]
         except Exception as e:
-            logger.error("Structural fallback query failed: %s", e)
+            logger.warning("Structural fallback query failed: %s", e)
             return []
 
 class HybridQueryRouter:
@@ -1081,7 +1081,7 @@ class HybridQueryRouter:
         try:
             graph_results = self.graph_builder.graph_search(query)
         except Exception as e:
-            logger.error("Graph search failed: %s", e)
+            logger.warning("Graph search failed: %s; falling back to vector results only", e)
             graph_results = []
         results["graph_results"] = graph_results
 
