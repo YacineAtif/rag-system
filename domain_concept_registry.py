@@ -1,6 +1,6 @@
 import logging
 import re
-from typing import Dict, List, Sequence, Tuple
+from typing import Dict, List, Optional, Sequence, Tuple
 
 import numpy as np
 from sklearn.feature_extraction.text import HashingVectorizer
@@ -16,7 +16,7 @@ logger = logging.getLogger(__name__)
 class DomainConceptRegistry:
     """Registry of known domain concepts and their embeddings."""
 
-    def __init__(self, concepts: Sequence[str], synonyms: Dict[str, str] | None = None):
+    def __init__(self, concepts: Sequence[str], synonyms: Optional[Dict[str, str]] = None):
         self.concepts = [c.lower() for c in concepts]
         self.synonyms = {k.lower(): v.lower() for k, v in (synonyms or {}).items()}
         if _HAS_TRANSFORMER:
