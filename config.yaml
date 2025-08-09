@@ -89,7 +89,7 @@ ood_detection:
     min_context_relevance: 0.5
     min_passage_count: 2
     max_contradiction_score: 0.3
-    min_information_density: 0.6
+    min_information_density: 0.4
 
   # Abstention behavior
   abstention:
