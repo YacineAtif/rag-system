@@ -57,6 +57,7 @@ logging:
     anthropic: WARNING
     urllib3: WARNING
     neo4j: WARNING
+    neo4j.notifications: ERROR
     httpx: WARNING
     sentence_transformers: WARNING
     multi_layer_ood: WARNING

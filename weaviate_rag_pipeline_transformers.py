@@ -56,6 +56,7 @@ CONFIG = Config()
 
 logging.basicConfig()
 logger = logging.getLogger(__name__)
+logging.getLogger('neo4j.notifications').setLevel(logging.ERROR)
 
 
 def setup_logging(config):
@@ -63,6 +64,7 @@ def setup_logging(config):
     root_level_name = config.get('logging', {}).get('level', 'WARNING')
     root_level = getattr(logging, root_level_name.upper(), logging.WARNING)
     logging.getLogger().setLevel(root_level)
+    logging.getLogger('neo4j.notifications').setLevel(logging.ERROR)
 
     components = config.get('logging', {}).get('components', {})
     for component, level in components.items():
