@@ -107,7 +107,7 @@ def load_ood_config() -> OODDetectionConfig:
     return OODDetectionConfig(
         enabled=data.get("enabled", True),
         similarity_threshold=data.get("similarity_threshold", 0.15),
-        graph_connectivity_threshold=data.get("graph_connectivity_threshold", 0.6),
+        graph_connectivity_threshold=data.get("graph_connectivity_threshold", 0.1),
         context_quality_threshold=data.get("context_quality_threshold", 0.7),
         generation_confidence_threshold=data.get("generation_confidence_threshold", 0.8),
         keywords=keywords,

@@ -129,6 +129,7 @@ def query_knowledge_graph(query: str, config: Config) -> List[Dict[str, Any]]:
     cypher = (
         "MATCH (n)-[r*1..2]-(m) "
         "WHERE toLower(n.name) CONTAINS toLower($q) "
+        "   OR toLower(m.name) CONTAINS toLower($q) "
         "RETURN n, m LIMIT 20"
     )
     records: List[Dict[str, Any]] = []
