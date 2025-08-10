@@ -101,3 +101,28 @@ body {
   .chat { padding: 10px; }
   .suggestions { flex-wrap: wrap; }
 }
+
+/* Improved typography for bot responses */
+.bot p,
+.message-content p {
+  margin: 0.5em 0;
+  line-height: 1.6;
+}
+
+.bot ul,
+.bot ol,
+.message-content ul,
+.message-content ol {
+  margin: 0.5em 0 0.5em 1.5em;
+  padding-left: 1.2em;
+}
+
+.bot li,
+.message-content li {
+  margin-bottom: 0.25em;
+}
+
+.bot strong,
+.message-content strong {
+  font-weight: 600;
+}

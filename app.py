@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import json
 import time
+import re
 from flask import Flask, request, jsonify, Response, render_template
 
 from rag_backend import RAGBackend
@@ -37,11 +38,11 @@ def query() -> Response:
 
     def generate():
         result = get_backend().query(user_query)["answer"]
-        # Stream word by word to emulate ChatGPT typing
-        for token in result.split():
-            payload = json.dumps({"content": token + " "})
+        # Preserve whitespace and newlines while streaming
+        for token in re.findall(r"\S+\s*", result):
+            payload = json.dumps({"token": token})
             yield f"data: {payload}\n\n"
-            time.sleep(0.05)
+            time.sleep(0.02)
         yield "data: [DONE]\n\n"
 
     return Response(generate(), mimetype="text/event-stream")

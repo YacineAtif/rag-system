@@ -47,11 +47,23 @@ function formatResponse(text) {
   // Convert standalone headings ending with a colon
   formatted = formatted.replace(/^([A-Za-z][^:\n]+):\s*$/gm, '<h4>$1</h4>');
 
-  // Bullet points -> list items
-  formatted = formatted.replace(/^\s*[-*•]\s+(.+?)$/gm, '<li>$1</li>');
+  // Bold **text** patterns
+  formatted = formatted.replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>');
 
-  // Wrap consecutive list items in <ul>
-  formatted = formatted.replace(/(<li>.*?<\/li>)+/gs, match => `<ul>${match}</ul>`);
+  // Numbered list items (e.g., "1. item")
+  formatted = formatted.replace(/^\s*\d+\.\s+(.+?)$/gm, '<li class="numbered">$1</li>');
+
+  // Bullet points -> list items
+  formatted = formatted.replace(/^\s*[-*•]\s+(.+?)$/gm, '<li class="bullet">$1</li>');
+
+  // Wrap consecutive numbered items in <ol>
+  formatted = formatted.replace(/(<li class="numbered">.*?<\/li>\s*)+/gs, match => `<ol>${match}</ol>`);
+
+  // Wrap consecutive bullet items in <ul>
+  formatted = formatted.replace(/(<li class="bullet">.*?<\/li>\s*)+/gs, match => `<ul>${match}</ul>`);
+
+  // Clean up temporary classes
+  formatted = formatted.replace(/<li class="(?:numbered|bullet)">/g, '<li>');
 
   // Double line breaks -> paragraph breaks
   formatted = formatted.replace(/\n\n+/g, '</p><p>');

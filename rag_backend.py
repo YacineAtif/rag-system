@@ -77,9 +77,17 @@ class RAGBackend:
         except subprocess.CalledProcessError as exc:  # pragma: no cover - runtime environment
             raise RuntimeError("Failed to start Docker containers") from exc
 
+    def _format_answer(self, text: str) -> str:
+        """Normalize whitespace and preserve paragraph breaks."""
+        lines = [line.rstrip() for line in text.splitlines()]
+        return "\n".join(line for line in lines if line)
+
     def query(self, query: str) -> dict:
         """Execute a query through the RAG pipeline."""
-        return self.pipeline.query_with_graph(query)
+        result = self.pipeline.query_with_graph(query)
+        if "answer" in result:
+            result["answer"] = self._format_answer(result["answer"])
+        return result
 
 
 __all__ = ["RAGBackend"]
