@@ -1,0 +1,67 @@
+const chat = document.getElementById('chat');
+const form = document.getElementById('chat-form');
+const input = document.getElementById('user-input');
+const thinking = document.getElementById('thinking');
+
+actionButtons();
+
+form.addEventListener('submit', (e) => {
+  e.preventDefault();
+  const query = input.value.trim();
+  if (!query) return;
+  addMessage(query, 'user');
+  input.value = '';
+  sendQuery(query);
+});
+
+function actionButtons() {
+  document.querySelectorAll('.suggestion').forEach(btn => {
+    btn.addEventListener('click', () => {
+      input.value = btn.textContent;
+      form.dispatchEvent(new Event('submit'));
+    });
+  });
+}
+
+function addMessage(text, role) {
+  const div = document.createElement('div');
+  div.className = `message ${role}`;
+  div.textContent = text;
+  chat.appendChild(div);
+  chat.scrollTop = chat.scrollHeight;
+}
+
+async function sendQuery(query) {
+  thinking.classList.remove('hidden');
+  addMessage('', 'bot');
+  const last = chat.lastElementChild;
+
+  const response = await fetch('/api/query', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ query })
+  });
+
+  const reader = response.body.getReader();
+  const decoder = new TextDecoder('utf-8');
+  let botText = '';
+
+  while (true) {
+    const { value, done } = await reader.read();
+    if (done) break;
+    const chunk = decoder.decode(value, { stream: true });
+    chunk.split('\n').forEach(line => {
+      if (line.startsWith('data:')) {
+        const data = line.replace('data:','').trim();
+        if (data === '[DONE]') return;
+        try {
+          const obj = JSON.parse(data);
+          botText += obj.token;
+          last.textContent = botText;
+          chat.scrollTop = chat.scrollHeight;
+        } catch {}
+      }
+    });
+  }
+  thinking.classList.add('hidden');
+}
