@@ -134,4 +134,4 @@ Desktop.ini
 # Linux
 *~
 .fuse_hidden*
-.nfs*
+.nfs*templates/old_index.html

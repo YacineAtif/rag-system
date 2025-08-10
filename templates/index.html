@@ -73,6 +73,7 @@
             margin-bottom: 2rem;
             display: flex;
             flex-direction: column;
+            width: 100%;
         }
 
         .message-user {
@@ -84,11 +85,9 @@
         }
 
         .message-content {
-            max-width: 85%;
             padding: 1.25rem 1.75rem;
             border-radius: 1.25rem;
             line-height: 1.7;
-            white-space: pre-wrap;
             word-wrap: break-word;
             font-size: 1rem;
             font-weight: 400;
@@ -99,6 +98,8 @@
             color: white;
             border-bottom-right-radius: 0.375rem;
             font-weight: 500;
+            max-width: 85%;
+            margin-left: auto;
         }
 
         .message-assistant .message-content {
@@ -106,6 +107,8 @@
             color: #1a1a1a;
             border-bottom-left-radius: 0.375rem;
             border: 1px solid #e5e5e7;
+            max-width: 100%;
+            width: 100%;
         }
 
         /* Enhanced formatting for assistant responses */
@@ -117,6 +120,13 @@
             margin: 1.5rem 0 1rem 0;
             color: #1a1a1a;
             letter-spacing: -0.01em;
+        }
+
+        .message-assistant .message-content h1:first-child,
+        .message-assistant .message-content h2:first-child,
+        .message-assistant .message-content h3:first-child,
+        .message-assistant .message-content h4:first-child {
+            margin-top: 0;
         }
 
         .message-assistant .message-content h1 { font-size: 1.5rem; }
@@ -324,7 +334,7 @@
             border: 1px solid #e5e5e7;
             border-radius: 1.25rem;
             border-bottom-left-radius: 0.375rem;
-            max-width: 85%;
+            max-width: 100%;
             margin-bottom: 2rem;
             align-items: center;
             gap: 0.75rem;
@@ -383,7 +393,6 @@
             }
 
             .message-content {
-                max-width: 95%;
                 padding: 1rem 1.25rem;
             }
 
@@ -584,7 +593,7 @@
                                         updateMessage(messageId, formatResponse(accumulatedText));
                                     }
                                 } catch (e) {
-                                    console.log('Parse error:', e);
+                                    // Ignore parse errors for partial chunks
                                 }
                             }
                         }
@@ -606,25 +615,36 @@
             // Enhanced formatting for better readability
             let formatted = text;
             
-            // Convert numbered lists (1. 2. 3.) to proper formatting
-            formatted = formatted.replace(/^\d+\.\s+(.+)$/gm, '<p><strong>$1</strong></p>');
+            // Convert numbered lists with periods to HTML
+            formatted = formatted.replace(/^(\d+)\.\s+(.+?)(?=\n|$)/gm, '<h4>$1. $2</h4>');
             
-            // Convert bullet points (- or •) to proper formatting  
-            formatted = formatted.replace(/^[-•]\s+(.+)$/gm, '<p>• $1</p>');
+            // Convert standalone headings (words followed by colon)
+            formatted = formatted.replace(/^([A-Za-z][^:\n]+):\s*$/gm, '<h4>$1:</h4>');
             
-            // Convert "Purpose:" style headers to proper headings
-            formatted = formatted.replace(/^(\d+\.\s+)?([A-Z][^:]+):\s*$/gm, '<h4>$2</h4>');
+            // Convert bullet points to HTML lists
+            formatted = formatted.replace(/^[-•]\s+(.+?)(?=\n|$)/gm, '<li>$1</li>');
             
-            // Convert standalone paragraphs
-            formatted = formatted.replace(/^([A-Z][^.\n]+\.)$/gm, '<p>$1</p>');
+            // Wrap consecutive list items in ul tags
+            formatted = formatted.replace(/(<li>.*?<\/li>)(\s*<li>.*?<\/li>)*/gs, '<ul>$&</ul>');
             
-            // Handle line breaks properly
+            // Convert double line breaks to paragraph breaks
             formatted = formatted.replace(/\n\n+/g, '</p><p>');
+            
+            // Convert single line breaks to br tags within paragraphs
             formatted = formatted.replace(/\n/g, '<br>');
             
-            // Wrap in paragraph if not already formatted
-            if (!formatted.includes('<p>') && !formatted.includes('<h')) {
+            // Wrap in paragraph tags if not already formatted
+            if (!formatted.includes('<h4>') && !formatted.includes('<ul>') && !formatted.includes('<p>')) {
                 formatted = '<p>' + formatted + '</p>';
+            } else {
+                // Add opening paragraph tag if content doesn't start with a heading or list
+                if (!formatted.startsWith('<h4>') && !formatted.startsWith('<ul>')) {
+                    formatted = '<p>' + formatted;
+                }
+                // Add closing paragraph tag if needed
+                if (!formatted.endsWith('</p>') && !formatted.endsWith('</ul>')) {
+                    formatted = formatted + '</p>';
+                }
             }
             
             return formatted;
@@ -649,7 +669,9 @@
             messagesArea.appendChild(messageDiv);
             messagesArea.scrollTop = messagesArea.scrollHeight;
             
-            return messageDiv.id = 'msg-' + Date.now();
+            const messageId = 'msg-' + Date.now();
+            messageDiv.id = messageId;
+            return messageId;
         }
 
         function updateMessage(messageId, content) {
