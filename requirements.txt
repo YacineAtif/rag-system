@@ -33,6 +33,9 @@ tqdm>=4.64.0
 # Testing
 pytest>=7.0.0
 
+# Web application
+Flask>=3.0.0
+
 # Neo4j driver for knowledge graph integration
 neo4j>=5.16.0
 

@@ -1,0 +1,37 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>I2Connect RAG Chat</title>
+  <link rel="stylesheet" href="/static/css/style.css" />
+</head>
+<body>
+  <header class="header">
+    <div class="logo">🚗 I2Connect Knowledge Expert</div>
+    <!-- Replace the div above with <img src="/static/img/logo.png" alt="I2Connect logo" /> to add a custom logo -->
+    <h1>I2Connect RAG Assistant</h1>
+  </header>
+
+  <section class="stats">
+    <p><strong>Knowledge Graph:</strong> 700 relationships, 954 entities</p>
+  </section>
+
+  <section class="suggestions">
+    <button class="suggestion">Evidence Theory</button>
+    <button class="suggestion">Risk Assessment</button>
+    <button class="suggestion">Graph Database</button>
+  </section>
+
+  <main id="chat" class="chat"></main>
+
+  <div id="thinking" class="thinking hidden">🔍 Thinking...</div>
+
+  <form id="chat-form" class="input-area">
+    <input id="user-input" type="text" placeholder="Type your question..." autocomplete="off" />
+    <button type="submit">Send</button>
+  </form>
+
+  <script src="/static/js/app.js"></script>
+</body>
+</html>
