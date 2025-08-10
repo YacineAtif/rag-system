@@ -39,7 +39,7 @@ def query() -> Response:
         result = get_backend().query(user_query)["answer"]
         # Stream word by word to emulate ChatGPT typing
         for token in result.split():
-            payload = json.dumps({"token": token + " "})
+            payload = json.dumps({"content": token + " "})
             yield f"data: {payload}\n\n"
             time.sleep(0.05)
         yield "data: [DONE]\n\n"
