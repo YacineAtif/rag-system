@@ -4,6 +4,7 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>I2Connect Knowledge Expert</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}?v={{ version }}">
     <style>
         * {
             margin: 0;
@@ -589,8 +590,8 @@
                                 
                                 try {
                                     const parsed = JSON.parse(data);
-                                    if (parsed.content) {
-                                        accumulatedText += parsed.content;
+                                    if (parsed.token) {
+                                        accumulatedText += parsed.token;
                                         updateMessage(messageId, formatResponse(accumulatedText));
                                     }
                                 } catch (e) {
@@ -612,39 +613,7 @@
             }
         }
 
-        function formatResponse(text) {
-            console.log('Original text:', text);
-            let formatted = text;
-
-            // Convert numbered headings like "1. Title:" to <h4>
-            formatted = formatted.replace(/^(\d+\.\s+[^:\n]+):\s*$/gm, '<h4>$1</h4>');
-
-            // Convert standalone headings ending with a colon
-            formatted = formatted.replace(/^([A-Za-z][^:\n]+):\s*$/gm, '<h4>$1</h4>');
-
-            // Bullet points -> list items
-            formatted = formatted.replace(/^\s*[-*•]\s+(.+?)$/gm, '<li>$1</li>');
-
-            // Wrap consecutive list items in <ul>
-            formatted = formatted.replace(/(<li>.*?<\/li>)+/gs, match => `<ul>${match}</ul>`);
-
-            // Double line breaks -> paragraph breaks
-            formatted = formatted.replace(/\n\n+/g, '</p><p>');
-
-            // Single line breaks -> <br>
-            formatted = formatted.replace(/\n/g, '<br>');
-
-            // Ensure wrapped in paragraph tags when needed
-            if (!formatted.startsWith('<h4>') && !formatted.startsWith('<ul>')) {
-                formatted = '<p>' + formatted;
-            }
-            if (!formatted.endsWith('</p>') && !formatted.endsWith('</ul>')) {
-                formatted = formatted + '</p>';
-            }
-
-            console.log('Formatted text:', formatted);
-            return formatted;
-        }
+        // formatting handled in static/js/app.js
 
         function addMessage(content, sender, isStreaming = false) {
             const messagesArea = document.getElementById('messagesArea');
