@@ -49,7 +49,7 @@ def query() -> Response:
 
 @app.route("/")
 def index() -> str:
-    return render_template("index.html")
+    return render_template("index.html", version=int(time.time()))
 
 
 if __name__ == "__main__":  # pragma: no cover - manual execution

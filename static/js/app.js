@@ -3,16 +3,18 @@ const form = document.getElementById('chat-form');
 const input = document.getElementById('user-input');
 const thinking = document.getElementById('thinking');
 
-actionButtons();
+if (chat && form && input && thinking) {
+  actionButtons();
 
-form.addEventListener('submit', (e) => {
-  e.preventDefault();
-  const query = input.value.trim();
-  if (!query) return;
-  addMessage(query, 'user');
-  input.value = '';
-  sendQuery(query);
-});
+  form.addEventListener('submit', (e) => {
+    e.preventDefault();
+    const query = input.value.trim();
+    if (!query) return;
+    addMessage(query, 'user');
+    input.value = '';
+    sendQuery(query);
+  });
+}
 
 function actionButtons() {
   document.querySelectorAll('.suggestion').forEach(btn => {
@@ -36,16 +38,17 @@ function addMessage(text, role) {
 }
 
 function formatResponse(text) {
+  console.log('Original text:', text);
   let formatted = text;
 
-  // Convert numbered headings like "1. Title:" to <h4>
-  formatted = formatted.replace(/^(\d+\.\s+.+?:)\s*$/gm, '<h4>$1</h4>');
+  // Convert numbered headings like "1. Title:" to <h4> (remove trailing colon)
+  formatted = formatted.replace(/^(\d+\.\s+[^:\n]+):\s*$/gm, '<h4>$1</h4>');
 
   // Convert standalone headings ending with a colon
-  formatted = formatted.replace(/^([A-Za-z][^:\n]+:)\s*$/gm, '<h4>$1</h4>');
+  formatted = formatted.replace(/^([A-Za-z][^:\n]+):\s*$/gm, '<h4>$1</h4>');
 
   // Bullet points -> list items
-  formatted = formatted.replace(/^[-*•]\s+(.+?)$/gm, '<li>$1</li>');
+  formatted = formatted.replace(/^\s*[-*•]\s+(.+?)$/gm, '<li>$1</li>');
 
   // Wrap consecutive list items in <ul>
   formatted = formatted.replace(/(<li>.*?<\/li>)+/gs, match => `<ul>${match}</ul>`);
@@ -64,6 +67,7 @@ function formatResponse(text) {
     formatted = formatted + '</p>';
   }
 
+  console.log('Formatted text:', formatted);
   return formatted;
 }
 
