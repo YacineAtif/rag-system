@@ -16,6 +16,7 @@ def test_query_knowledge_graph_uses_extracted_entity():
     cypher = (
         "MATCH (n)-[r*1..2]-(m) "
         "WHERE toLower(n.name) CONTAINS toLower($q) "
+        "   OR toLower(m.name) CONTAINS toLower($q) "
         "RETURN n, m LIMIT 20"
     )
     mock_session.run.assert_called_once_with(cypher, q='Scania')

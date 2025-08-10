@@ -83,7 +83,7 @@ ood:
 ood_detection:
   enabled: true
   similarity_threshold: 0.15
-  graph_connectivity_threshold: 0.6
+  graph_connectivity_threshold: 0.1
   context_quality_threshold: 0.7
   generation_confidence_threshold: 0.4
 

@@ -51,7 +51,7 @@ class AbstentionConfig:
 class OODDetectionConfig:
     enabled: bool = True
     similarity_threshold: float = 0.15
-    graph_connectivity_threshold: float = 0.6
+    graph_connectivity_threshold: float = 0.1
     context_quality_threshold: float = 0.7
     generation_confidence_threshold: float = 0.8
     keywords: KeywordTiers = field(default_factory=KeywordTiers)

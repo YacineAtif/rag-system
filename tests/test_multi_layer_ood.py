@@ -31,7 +31,7 @@ class TestMultiLayerOOD(unittest.TestCase):
         )
         cfg = OODDetectionConfig(
             similarity_threshold=0.1,
-            graph_connectivity_threshold=0.6,
+            graph_connectivity_threshold=0.1,
             generation_confidence_threshold=0.5,
             keywords=keywords,
             quality_gates=quality,
