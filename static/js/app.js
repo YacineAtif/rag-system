@@ -28,13 +28,24 @@ function actionButtons() {
 function addMessage(text, role) {
   const div = document.createElement('div');
   div.className = `message ${role}`;
-  if (role === 'bot') {
-    div.innerHTML = formatResponse(text);
+
+  const content = document.createElement('div');
+  content.className = 'message-content';
+  if (role === 'bot' && text) {
+    content.innerHTML = formatResponse(text);
   } else {
-    div.textContent = text;
+    content.textContent = text;
   }
+  div.appendChild(content);
+
+  const arrow = document.createElement('span');
+  arrow.className = 'dialog-arrow';
+  div.appendChild(arrow);
+
   chat.appendChild(div);
   chat.scrollTop = chat.scrollHeight;
+
+  return content;
 }
 
 function formatResponse(text) {
@@ -85,8 +96,8 @@ function formatResponse(text) {
 
 async function sendQuery(query) {
   thinking.classList.remove('hidden');
-  addMessage('', 'bot');
-  const last = chat.lastElementChild;
+  const content = addMessage('', 'bot');
+  content.innerHTML = '<span class="typing-cursor"></span>';
 
   const response = await fetch('/api/query', {
     method: 'POST',
@@ -109,11 +120,12 @@ async function sendQuery(query) {
         try {
           const obj = JSON.parse(data);
           botText += obj.token;
-          last.innerHTML = formatResponse(botText);
+          content.innerHTML = formatResponse(botText) + '<span class="typing-cursor"></span>';
           chat.scrollTop = chat.scrollHeight;
         } catch {}
       }
     });
   }
+  content.innerHTML = formatResponse(botText);
   thinking.classList.add('hidden');
 }
