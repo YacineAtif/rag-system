@@ -4,7 +4,7 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>I2Connect Knowledge Expert</title>
-    <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}?v={{ version }}">
+    
     <style>
         * {
             margin: 0;
@@ -40,10 +40,12 @@
 
         .status-bar {
             display: flex;
-            gap: 2rem;
+            flex-wrap: wrap;
+            gap: 1.5rem;
             font-size: 0.875rem;
             color: #6e6e80;
             font-weight: 500;
+            line-height: 1.4;
         }
 
         .status-item {
@@ -71,7 +73,7 @@
         }
 
         .message {
-            margin-bottom: 2rem;
+            margin-bottom: 1.5rem;
             display: flex;
             flex-direction: column;
             width: 100%;
@@ -88,7 +90,7 @@
         .message-content {
             padding: 1.25rem 1.75rem;
             border-radius: 1.25rem;
-            line-height: 1.7;
+            line-height: 1.6;
             word-wrap: break-word;
             font-size: 1rem;
             font-weight: 400;
@@ -112,13 +114,13 @@
             width: 100%;
         }
 
-        /* Enhanced formatting for assistant responses */
+        /* ULTRA TIGHT spacing for assistant responses */
         .message-assistant .message-content h1,
         .message-assistant .message-content h2,
         .message-assistant .message-content h3,
         .message-assistant .message-content h4 {
             font-weight: 700;
-            margin: 1.5rem 0 1rem 0;
+            margin: 0.3rem 0 0.1rem 0 !important;
             color: #1a1a1a;
             letter-spacing: -0.01em;
         }
@@ -136,20 +138,23 @@
         .message-assistant .message-content h4 { font-size: 1rem; }
 
         .message-assistant .message-content p {
-            margin-bottom: 1rem;
+            margin: 0.2rem 0 !important;
             font-size: 1rem;
-            line-height: 1.7;
+            line-height: 1.4;
         }
 
         .message-assistant .message-content ul,
         .message-assistant .message-content ol {
-            margin: 1rem 0;
-            padding-left: 1.5rem;
+            margin: 0rem !important;
+            padding-left: 1rem;
+            line-height: 1.1;
         }
 
         .message-assistant .message-content li {
-            margin-bottom: 0.5rem;
-            line-height: 1.6;
+            margin: 0rem !important;
+            padding: 0rem !important;
+            line-height: 1.2;
+            display: list-item;
         }
 
         .message-assistant .message-content strong {
@@ -255,7 +260,7 @@
             max-height: 140px;
             padding: 1rem 4rem 1rem 1.25rem;
             border: 1px solid #e5e5e7;
-            border-radius: 1.25rem;
+            border-radius: 1.75rem;
             background: #ffffff;
             color: #1a1a1a;
             font-size: 1rem;
@@ -266,6 +271,13 @@
             box-shadow: 0 1px 3px rgba(0, 0, 0, 0.05);
             font-weight: 400;
             line-height: 1.5;
+            overflow: hidden;
+            scrollbar-width: none;
+            -ms-overflow-style: none;
+        }
+
+        #questionInput::-webkit-scrollbar {
+            display: none;
         }
 
         #questionInput:focus {
@@ -280,12 +292,12 @@
 
         .send-button {
             position: absolute;
-            right: 0.75rem;
-            bottom: 0.75rem;
-            width: 2.5rem;
-            height: 2.5rem;
+            right: 0.5rem;
+            bottom: 0.5rem;
+            width: 3rem;
+            height: 3rem;
             border: none;
-            border-radius: 0.75rem;
+            border-radius: 50%;
             background: #10a37f;
             color: white;
             cursor: pointer;
@@ -293,13 +305,13 @@
             align-items: center;
             justify-content: center;
             transition: all 0.2s ease;
-            box-shadow: 0 2px 4px rgba(16, 163, 127, 0.2);
+            box-shadow: 0 2px 8px rgba(16, 163, 127, 0.25);
         }
 
         .send-button:hover:not(:disabled) {
             background: #0e906d;
-            transform: translateY(-1px);
-            box-shadow: 0 4px 8px rgba(16, 163, 127, 0.3);
+            transform: scale(1.05);
+            box-shadow: 0 4px 12px rgba(16, 163, 127, 0.35);
         }
 
         .send-button:disabled {
@@ -309,23 +321,25 @@
         }
 
         .clear-button {
-            padding: 1rem 1.75rem;
+            padding: 1rem 2rem;
             border: 1px solid #e5e5e7;
-            border-radius: 0.75rem;
-            background: transparent;
+            border-radius: 1.75rem;
+            background: #ffffff;
             color: #6e6e80;
             cursor: pointer;
             transition: all 0.2s ease;
             font-size: 0.875rem;
             font-weight: 500;
             height: 56px;
+            box-shadow: 0 1px 3px rgba(0, 0, 0, 0.05);
         }
 
         .clear-button:hover {
             background: #f7f7f8;
             color: #1a1a1a;
-            border-color: #10a37f;
+            border-color: #cbd5e1;
             transform: translateY(-1px);
+            box-shadow: 0 4px 8px rgba(0, 0, 0, 0.1);
         }
 
         .thinking-indicator {
@@ -386,7 +400,6 @@
             .status-bar {
                 gap: 1rem;
                 font-size: 0.75rem;
-                flex-wrap: wrap;
             }
 
             .chat-container {
@@ -514,7 +527,7 @@
                         rows="1"
                     ></textarea>
                     <button class="send-button" id="sendButton" onclick="submitQuestion()">
-                        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
                             <line x1="22" y1="2" x2="11" y2="13"></line>
                             <polygon points="22,2 15,22 11,13 2,9"></polygon>
                         </svg>
@@ -525,15 +538,29 @@
         </div>
     </div>
 
-    <script src="{{ url_for('static', filename='js/app.js') }}?v={{ version }}"></script>
     <script>
         // Conversation memory
         let conversationHistory = [];
 
         const textarea = document.getElementById('questionInput');
+        
+        function resetTextarea() {
+            textarea.style.height = '56px';
+            textarea.style.overflow = 'hidden';
+        }
+        
         textarea.addEventListener('input', function() {
+            // Reset height and recalculate
             this.style.height = '56px';
-            this.style.height = Math.min(this.scrollHeight, 140) + 'px';
+            const newHeight = Math.min(this.scrollHeight, 140);
+            this.style.height = newHeight + 'px';
+            
+            // Hide scrollbar when content fits
+            if (this.scrollHeight <= 140) {
+                this.style.overflow = 'hidden';
+            } else {
+                this.style.overflow = 'auto';
+            }
         });
 
         textarea.addEventListener('keydown', function(e) {
@@ -578,25 +605,31 @@
             return formatted;
         }
 
-        function typewriterEffect(element, text, speed = 30) {
+        // Fixed typewriter implementation - NO AUTO SCROLL during typing
+        function typewriterEffect(element, finalText, speed = 80) {
             element.innerHTML = '';
-            let i = 0;
-
-            function addCursor() {
-                element.innerHTML = formatResponse(text.substring(0, i)) + '<span class="typing-cursor">|</span>';
-            }
-
-            function type() {
-                if (i < text.length) {
-                    i++;
-                    addCursor();
-                    setTimeout(type, speed);
+            let currentText = '';
+            let charIndex = 0;
+            
+            function typeNextChar() {
+                if (charIndex < finalText.length) {
+                    currentText += finalText[charIndex];
+                    charIndex++;
+                    
+                    // Format the accumulated text and add cursor
+                    element.innerHTML = formatResponse(currentText) + '<span class="typing-cursor">|</span>';
+                    
+                    // REMOVED: Auto-scroll during typing - let user control scroll
+                    // document.getElementById('messagesArea').scrollTop = document.getElementById('messagesArea').scrollHeight;
+                    
+                    setTimeout(typeNextChar, speed);
                 } else {
-                    element.innerHTML = formatResponse(text);
+                    // Finished typing - remove cursor and show final formatted text
+                    element.innerHTML = formatResponse(finalText);
                 }
             }
-
-            type();
+            
+            typeNextChar();
         }
 
         async function submitQuestion() {
@@ -613,7 +646,7 @@
             });
 
             textarea.value = '';
-            textarea.style.height = '56px';
+            resetTextarea(); // Use the reset function
             document.getElementById('sendButton').disabled = true;
 
             showThinkingIndicator();
@@ -637,6 +670,11 @@
                     
                     // Create message container for streaming
                     const messageId = addMessage('', 'assistant', true);
+                    const messageElement = document.getElementById(messageId);
+                    const contentDiv = messageElement.querySelector('.message-content');
+                    
+                    // Show initial cursor
+                    contentDiv.innerHTML = '<span class="typing-cursor">|</span>';
                     
                     while (true) {
                         const { done, value } = await reader.read();
@@ -654,6 +692,8 @@
                                         content: accumulatedText,
                                         timestamp: new Date().toISOString()
                                     });
+                                    // Start typewriter effect with final text
+                                    typewriterEffect(contentDiv, accumulatedText, 80);
                                     return;
                                 }
                                 
@@ -661,9 +701,7 @@
                                     const parsed = JSON.parse(data);
                                     if (parsed.token) {
                                         accumulatedText += parsed.token;
-                                        const messageElement = document.getElementById(messageId);
-                                        const contentDiv = messageElement.querySelector('.message-content');
-                                        typewriterEffect(contentDiv, accumulatedText, 25);
+                                        // Just accumulate, don't show yet
                                     }
                                 } catch (e) {
                                     // Ignore parse errors for partial chunks
@@ -680,6 +718,7 @@
             } finally {
                 hideThinkingIndicator();
                 document.getElementById('sendButton').disabled = false;
+                resetTextarea(); // Ensure textarea is clean
                 textarea.focus();
             }
         }
@@ -708,22 +747,36 @@
             return messageId;
         }
 
-        function updateMessage(messageId, content) {
-            const messageElement = document.getElementById(messageId);
-            if (messageElement) {
-                const contentDiv = messageElement.querySelector('.message-content');
-                contentDiv.innerHTML = content;
-                document.getElementById('messagesArea').scrollTop = document.getElementById('messagesArea').scrollHeight;
-            }
-        }
-
         function showThinkingIndicator() {
-            document.getElementById('thinkingIndicator').style.display = 'flex';
-            document.getElementById('messagesArea').scrollTop = document.getElementById('messagesArea').scrollHeight;
+            // Create a message bubble with thinking indicator instead of using separate area
+            const messageId = addMessage('', 'assistant', true);
+            const messageElement = document.getElementById(messageId);
+            const contentDiv = messageElement.querySelector('.message-content');
+            
+            // Store the message ID for later cleanup
+            window.thinkingMessageId = messageId;
+            
+            contentDiv.innerHTML = `
+                <div style="display: flex; align-items: center; gap: 0.75rem; color: #6e6e80; font-weight: 500; font-size: 0.95rem;">
+                    <span>🔍 Thinking...</span>
+                    <div style="display: flex; gap: 0.25rem;">
+                        <div style="width: 0.5rem; height: 0.5rem; background: #10a37f; border-radius: 50%; animation: thinking 1.4s infinite ease-in-out; animation-delay: -0.32s;"></div>
+                        <div style="width: 0.5rem; height: 0.5rem; background: #10a37f; border-radius: 50%; animation: thinking 1.4s infinite ease-in-out; animation-delay: -0.16s;"></div>
+                        <div style="width: 0.5rem; height: 0.5rem; background: #10a37f; border-radius: 50%; animation: thinking 1.4s infinite ease-in-out;"></div>
+                    </div>
+                </div>
+            `;
         }
 
         function hideThinkingIndicator() {
-            document.getElementById('thinkingIndicator').style.display = 'none';
+            // Remove the thinking message bubble if it exists
+            if (window.thinkingMessageId) {
+                const thinkingElement = document.getElementById(window.thinkingMessageId);
+                if (thinkingElement) {
+                    thinkingElement.remove();
+                }
+                window.thinkingMessageId = null;
+            }
         }
 
         function askQuestion(question) {
