@@ -431,6 +431,19 @@
         .messages-area::-webkit-scrollbar-thumb:hover {
             background: #d1d5db;
         }
+
+        .typing-cursor {
+            display: inline-block;
+            background-color: #10a37f;
+            margin-left: 2px;
+            width: 2px;
+            animation: blink 1s infinite;
+        }
+
+        @keyframes blink {
+            0%, 50% { opacity: 1; }
+            51%, 100% { opacity: 0; }
+        }
     </style>
 </head>
 <body>
@@ -530,6 +543,62 @@
             }
         });
 
+        function formatResponse(text) {
+            let formatted = text;
+
+            // Convert numbered headings
+            formatted = formatted.replace(/^(\d+\.\s+[^:\n]+):\s*$/gm, '<h4>$1</h4>');
+            formatted = formatted.replace(/^([A-Za-z][^:\n]+):\s*$/gm, '<h4>$1</h4>');
+
+            // Bold text
+            formatted = formatted.replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>');
+
+            // Lists
+            formatted = formatted.replace(/^\s*\d+\.\s+(.+?)$/gm, '<li class="numbered">$1</li>');
+            formatted = formatted.replace(/^\s*[-*•]\s+(.+?)$/gm, '<li class="bullet">$1</li>');
+
+            // Wrap lists
+            formatted = formatted.replace(/(<li class="numbered">.*?<\/li>\s*)+/gs, match => `<ol>${match}</ol>`);
+            formatted = formatted.replace(/(<li class="bullet">.*?<\/li>\s*)+/gs, match => `<ul>${match}</ul>`);
+
+            // Clean classes
+            formatted = formatted.replace(/<li class="(?:numbered|bullet)">/g, '<li>');
+
+            // Paragraphs and line breaks
+            formatted = formatted.replace(/\n\n+/g, '</p><p>');
+            formatted = formatted.replace(/\n/g, '<br>');
+
+            if (!formatted.startsWith('<h4>') && !formatted.startsWith('<ul>')) {
+                formatted = '<p>' + formatted;
+            }
+            if (!formatted.endsWith('</p>') && !formatted.endsWith('</ul>')) {
+                formatted = formatted + '</p>';
+            }
+
+            return formatted;
+        }
+
+        function typewriterEffect(element, text, speed = 30) {
+            element.innerHTML = '';
+            let i = 0;
+
+            function addCursor() {
+                element.innerHTML = formatResponse(text.substring(0, i)) + '<span class="typing-cursor">|</span>';
+            }
+
+            function type() {
+                if (i < text.length) {
+                    i++;
+                    addCursor();
+                    setTimeout(type, speed);
+                } else {
+                    element.innerHTML = formatResponse(text);
+                }
+            }
+
+            type();
+        }
+
         async function submitQuestion() {
             const question = textarea.value.trim();
             if (!question) return;
@@ -592,7 +661,9 @@
                                     const parsed = JSON.parse(data);
                                     if (parsed.token) {
                                         accumulatedText += parsed.token;
-                                        updateMessage(messageId, formatResponse(accumulatedText));
+                                        const messageElement = document.getElementById(messageId);
+                                        const contentDiv = messageElement.querySelector('.message-content');
+                                        typewriterEffect(contentDiv, accumulatedText, 25);
                                     }
                                 } catch (e) {
                                     // Ignore parse errors for partial chunks
@@ -612,8 +683,6 @@
                 textarea.focus();
             }
         }
-
-        // formatting handled in static/js/app.js
 
         function addMessage(content, sender, isStreaming = false) {
             const messagesArea = document.getElementById('messagesArea');
