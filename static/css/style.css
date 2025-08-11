@@ -129,18 +129,18 @@ body {
 
 /* Improved typography for bot responses */
 .message-content p {
-  margin: 8px 0;
+  margin: 4px 0;
   line-height: 1.5;
 }
 
 .message-content ul,
 .message-content ol {
-  margin: 8px 0;
+  margin: 4px 0;
   padding-left: 1.25em;
 }
 
 .message-content li {
-  margin: 4px 0;
+  margin: 1px 0;
 }
 
 .message-content strong {
@@ -200,28 +200,23 @@ body {
   50% { opacity: 0; }
 }
 
-/* CRITICAL: Override excessive spacing */
-.message-assistant .message-content h1,
-.message-assistant .message-content h2,
-.message-assistant .message-content h3,
-.message-assistant .message-content h4 {
-  margin: 0.5rem 0 0.25rem 0 !important;
+/* CRITICAL: Much tighter spacing overrides */
+.message-content p {
+  margin: 4px 0 !important;
 }
 
-.message-assistant .message-content p {
-  margin-bottom: 0.5rem !important;
+.message-content h1, .message-content h2, .message-content h3, .message-content h4 {
+  margin: 6px 0 2px 0 !important;
 }
 
-.message-assistant .message-content ul,
-.message-assistant .message-content ol {
-  margin: 0.5rem 0 !important;
+.message-content ul, .message-content ol {
+  margin: 4px 0 !important;
 }
 
-.message-assistant .message-content li {
-  margin-bottom: 0.2rem !important;
+.message-content li {
+  margin: 1px 0 !important;
 }
 
-/* Fix message spacing */
 .message {
-  margin-bottom: 1rem !important;
+  margin-bottom: 8px !important;
 }

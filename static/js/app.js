@@ -106,6 +106,21 @@ async function sendQuery(query) {
   const reader = response.body.getReader();
   const decoder = new TextDecoder('utf-8');
   let botText = '';
+  let buffer = '';
+  let typing = false;
+
+  function typeNextChar() {
+    if (buffer.length === 0) {
+      typing = false;
+      return;
+    }
+    typing = true;
+    botText += buffer[0];
+    buffer = buffer.slice(1);
+    content.innerHTML = formatResponse(botText) + '<span class="typing-cursor"></span>';
+    chat.scrollTop = chat.scrollHeight;
+    setTimeout(typeNextChar, 20);
+  }
 
   while (true) {
     const { value, done } = await reader.read();
@@ -117,13 +132,26 @@ async function sendQuery(query) {
         if (data === '[DONE]') return;
         try {
           const obj = JSON.parse(data);
-          botText += obj.token;
-          content.innerHTML = formatResponse(botText) + '<span class="typing-cursor"></span>';
-          chat.scrollTop = chat.scrollHeight;
+          buffer += obj.token;
+          if (!typing) {
+            typeNextChar();
+          }
         } catch {}
       }
     });
   }
+
+  await new Promise(resolve => {
+    function check() {
+      if (buffer.length === 0 && !typing) {
+        resolve();
+      } else {
+        setTimeout(check, 20);
+      }
+    }
+    check();
+  });
+
   content.innerHTML = formatResponse(botText);
   thinking.classList.add('hidden');
 }
