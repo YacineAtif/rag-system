@@ -49,7 +49,6 @@ function addMessage(text, role) {
 }
 
 function formatResponse(text) {
-  console.log('Original text:', text);
   let formatted = text;
 
   // Convert numbered headings like "1. Title:" to <h4> (remove trailing colon)
@@ -90,7 +89,6 @@ function formatResponse(text) {
     formatted = formatted + '</p>';
   }
 
-  console.log('Formatted text:', formatted);
   return formatted;
 }
 
