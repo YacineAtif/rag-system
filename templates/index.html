@@ -640,6 +640,8 @@
             const question = textarea.value.trim();
             if (!question) return;
 
+            console.log('🔍 DEBUG: Starting query submission:', question);
+
             document.getElementById('welcomeMessage').style.display = 'none';
             addMessage(question, 'user');
 
@@ -650,12 +652,14 @@
             });
 
             textarea.value = '';
-            resetTextarea(); // Use the reset function
+            resetTextarea();
             document.getElementById('sendButton').disabled = true;
 
             showThinkingIndicator();
 
             try {
+                console.log('🔍 DEBUG: About to make fetch request to /api/query');
+
                 const response = await fetch('/api/query', {
                     method: 'POST',
                     headers: {
@@ -667,62 +671,81 @@
                     })
                 });
 
+                console.log('🔍 DEBUG: Fetch response received:', response.status, response.ok);
+
                 if (response.ok) {
+                    console.log('🔍 DEBUG: Response OK, starting to read stream');
+
                     const reader = response.body.getReader();
                     const decoder = new TextDecoder();
                     let accumulatedText = '';
-                    
+
                     // Create message container for streaming
                     const messageId = addMessage('', 'assistant', true);
                     const messageElement = document.getElementById(messageId);
                     const contentDiv = messageElement.querySelector('.message-content');
-                    
+
                     // Show initial cursor
                     contentDiv.innerHTML = '<span class="typing-cursor">|</span>';
-                    
+
                     while (true) {
                         const { done, value } = await reader.read();
-                        if (done) break;
-                        
+                        if (done) {
+                            console.log('🔍 DEBUG: Stream finished, accumulated text length:', accumulatedText.length);
+                            break;
+                        }
+
                         const chunk = decoder.decode(value);
+                        console.log('🔍 DEBUG: Received chunk:', chunk.substring(0, 100) + '...');
+
                         const lines = chunk.split('\n');
-                        
+
                         for (const line of lines) {
                             if (line.startsWith('data: ')) {
                                 const data = line.slice(6);
                                 if (data === '[DONE]') {
+                                    console.log('🔍 DEBUG: Received [DONE] signal');
                                     conversationHistory.push({
                                         role: 'assistant',
                                         content: accumulatedText,
                                         timestamp: new Date().toISOString()
                                     });
-                                    // Start typewriter effect with final text
                                     typewriterEffect(contentDiv, accumulatedText, 80);
                                     return;
                                 }
-                                
+
                                 try {
                                     const parsed = JSON.parse(data);
                                     if (parsed.token) {
                                         accumulatedText += parsed.token;
-                                        // Just accumulate, don't show yet
                                     }
                                 } catch (e) {
-                                    // Ignore parse errors for partial chunks
+                                    console.log('🔍 DEBUG: Parse error (normal for partial chunks):', e.message);
                                 }
                             }
                         }
                     }
                 } else {
-                    const errorData = await response.json();
+                    console.error('🔍 DEBUG: Response not OK:', response.status);
+                    const errorText = await response.text();
+                    console.error('🔍 DEBUG: Error response body:', errorText);
+
+                    let errorData;
+                    try {
+                        errorData = JSON.parse(errorText);
+                    } catch {
+                        errorData = { error: errorText || 'Unknown error' };
+                    }
+
                     addMessage(`Error: ${errorData.error || 'Unknown error'}`, 'assistant');
                 }
             } catch (error) {
+                console.error('🔍 DEBUG: Fetch error:', error);
                 addMessage(`Error: ${error.message}`, 'assistant');
             } finally {
                 hideThinkingIndicator();
                 document.getElementById('sendButton').disabled = false;
-                resetTextarea(); // Ensure textarea is clean
+                resetTextarea();
                 textarea.focus();
             }
         }
