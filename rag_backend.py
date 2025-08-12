@@ -164,19 +164,87 @@ class RAGBackend:
         """Normalize whitespace and preserve paragraph breaks."""
         lines = [line.rstrip() for line in text.splitlines()]
         return "\n".join(line for line in lines if line)
-
+    
+    
+    def ensure_weaviate_connected(self) -> bool:
+        """Ensure Weaviate connection is working, reinitialize if needed"""
+        try:
+            # Test if Weaviate is responsive by trying a simple operation
+            self.document_store._client.schema.get()
+            return True
+        except Exception as e:
+            print(f"🔄 Weaviate connection issue detected: {e}")
+            try:
+                # Reinitialize Weaviate components
+                print("🔄 Reinitializing Weaviate components...")
+                weaviate_url = self._get_current_weaviate_url()
+                
+                # Create new document store
+                self.document_store = WeaviateDocumentStore(url=weaviate_url)
+                
+                # Create new retriever with the new document store
+                retriever = WeaviateEmbeddingRetriever(document_store=self.document_store)
+                
+                # Update the pipeline's retriever
+                self.pipeline.retriever = retriever
+                
+                print("✅ Weaviate components reinitialized successfully")
+                return True
+            except Exception as reconnect_error:
+                print(f"❌ Failed to reinitialize Weaviate: {reconnect_error}")
+                return False
+    
+    
+    
     def query(self, query: str) -> dict:
-        """Execute a query through the RAG pipeline."""
-        result = self.pipeline.query_with_graph(query)
-        if "answer" in result:
-            result["answer"] = self._format_answer(result["answer"])
+        """Execute a query through the RAG pipeline with Weaviate reconnection."""
         
-        # Add environment info to the result
-        result["environment"] = self.config.environment
-        result["neo4j_uri"] = self._get_current_neo4j_uri()
-        result["weaviate_url"] = self._get_current_weaviate_url()
+        # Ensure Weaviate is connected before processing
+        if not self.ensure_weaviate_connected():
+            return {
+                "answer": "I'm sorry, but I'm having trouble connecting to the knowledge base right now. Please try again in a moment.",
+                "error": "Weaviate connection unavailable",
+                "environment": self.config.environment,
+                "neo4j_uri": self._get_current_neo4j_uri(),
+                "weaviate_url": self._get_current_weaviate_url()
+            }
         
-        return result
+        try:
+            result = self.pipeline.query_with_graph(query)
+            if "answer" in result:
+                result["answer"] = self._format_answer(result["answer"])
+            
+            # Add environment info to the result
+            result["environment"] = self.config.environment
+            result["neo4j_uri"] = self._get_current_neo4j_uri()
+            result["weaviate_url"] = self._get_current_weaviate_url()
+            
+            return result
+            
+        except Exception as e:
+            # If query fails, try once more after reconnection
+            print(f"🔄 Query failed, attempting reconnection: {e}")
+            if self.ensure_weaviate_connected():
+                try:
+                    result = self.pipeline.query_with_graph(query)
+                    if "answer" in result:
+                        result["answer"] = self._format_answer(result["answer"])
+                    
+                    result["environment"] = self.config.environment
+                    result["neo4j_uri"] = self._get_current_neo4j_uri()
+                    result["weaviate_url"] = self._get_current_weaviate_url()
+                    
+                    return result
+                except Exception as retry_error:
+                    print(f"❌ Query failed even after reconnection: {retry_error}")
+            
+            return {
+                "answer": "I encountered an error while processing your query. Please try again.",
+                "error": str(e),
+                "environment": self.config.environment,
+                "neo4j_uri": self._get_current_neo4j_uri(),
+                "weaviate_url": self._get_current_weaviate_url()
+            }
 
     def get_stats(self) -> dict:
         """Get statistics from the knowledge graph."""
