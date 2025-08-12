@@ -6,6 +6,68 @@ results with vector search.
 import re
 from typing import List, Dict, Any, Tuple
 
+
+ddef get_neo4j_connection_config(config):
+    """
+    Get Neo4j connection configuration based on environment setting.
+    
+    Args:
+        config: Configuration object with environment and neo4j settings
+        
+    Returns:
+        dict: Connection parameters (uri, user, password, database)
+    """
+    # Determine which environment to use
+    env = getattr(config, 'environment', 'local')
+    print(f"🔧 Using Neo4j environment: {env}")
+    
+    # Get the appropriate environment config
+    if env == 'local' and hasattr(config.neo4j, 'local') and config.neo4j.local:
+        neo4j_config = config.neo4j.local
+    elif env == 'aura' and hasattr(config.neo4j, 'aura') and config.neo4j.aura:
+        neo4j_config = config.neo4j.aura
+    elif env == 'production' and hasattr(config.neo4j, 'production') and config.neo4j.production:
+        neo4j_config = config.neo4j.production
+    else:
+        # Fallback to main neo4j config for backward compatibility
+        print("📝 Using fallback Neo4j config")
+        neo4j_config = config.neo4j
+    
+    connection_config = {
+        'uri': neo4j_config.uri,
+        'user': neo4j_config.user,
+        'password': neo4j_config.password,
+        'database': getattr(neo4j_config, 'database', 'neo4j')
+    }
+    
+    print(f"🔗 Connecting to: {connection_config['uri']}")
+    return connection_config
+
+def create_neo4j_driver(config):
+    """
+    Create Neo4j driver with environment-based configuration.
+    
+    Args:
+        config: Configuration object
+        
+    Returns:
+        Neo4j driver instance
+    """
+    try:
+        from neo4j import GraphDatabase
+    except ImportError:
+        raise ImportError("neo4j package required for knowledge graph queries")
+    
+    conn_config = get_neo4j_connection_config(config)
+    
+    driver = GraphDatabase.driver(
+        conn_config['uri'],
+        auth=(conn_config['user'], conn_config['password'])
+    )
+    
+    return driver
+
+
 try:
     from backend.config import Config
 except Exception:  # pragma: no cover - optional import for tests
@@ -414,11 +476,10 @@ def build_knowledge_graph(
                 }
             )
 
-    logger.info("Connecting to Neo4j at %s", config.neo4j.uri)
+    conn_config = get_neo4j_connection_config(config)
+    logger.info("Connecting to Neo4j at %s", conn_config['uri'])
     try:
-        driver = GraphDatabase.driver(
-            config.neo4j.uri, auth=(config.neo4j.user, config.neo4j.password)
-        )
+        driver = create_neo4j_driver(config)
     except Exception as e:  # pragma: no cover - runtime errors
         logger.error("Failed to connect to Neo4j: %s", e)
         return False

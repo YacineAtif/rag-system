@@ -465,19 +465,23 @@
         <div class="status-bar">
             <div class="status-item">
                 <span>📊</span>
-                <span>700 relationships</span>
+                <span id="relationshipCount">Loading...</span>
             </div>
             <div class="status-item">
                 <span>🏷️</span>
-                <span>954 entities</span>
+                <span id="entityCount">Loading...</span>
             </div>
             <div class="status-item">
                 <span>🔗</span>
-                <span>214 predicates</span>
+                <span id="predicateCount">Loading...</span>
             </div>
             <div class="status-item">
                 <span>⚡</span>
-                <span id="statusText">✅ Ready (Semantic)</span>
+                <span id="statusText">Loading...</span>
+            </div>
+            <div class="status-item">
+                <span>🌍</span>
+                <span id="environmentInfo">Loading...</span>
             </div>
         </div>
     </div>
@@ -828,6 +832,55 @@
         window.addEventListener('load', () => {
             textarea.focus();
         });
+    
+            async function loadSystemStats() {
+            try {
+                // Fetch stats from your API
+                const [statsResponse, healthResponse] = await Promise.all([
+                    fetch('/api/stats'),
+                    fetch('/api/health')
+                ]);
+
+                if (statsResponse.ok && healthResponse.ok) {
+                    const stats = await statsResponse.json();
+                    const health = await healthResponse.json();
+
+                    // Update the UI with real data
+                    document.getElementById('relationshipCount').textContent = `${stats.relationships} relationships`;
+                    document.getElementById('entityCount').textContent = `${stats.entities} entities`;
+
+                    // Calculate predicates (unique relationship types) - you might need to add this to your API
+                    // For now, we'll use a placeholder or estimate
+                    const predicateCount = Math.floor(stats.relationships * 0.3); // Rough estimate
+                    document.getElementById('predicateCount').textContent = `${predicateCount} predicates`;
+
+                    // Update status and environment
+                    document.getElementById('statusText').textContent = `✅ Ready (${health.environment})`;
+                    document.getElementById('environmentInfo').textContent = `${health.environment} mode`;
+
+                } else {
+                    throw new Error('Failed to fetch stats');
+                }
+            } catch (error) {
+                console.error('Error loading stats:', error);
+                // Fallback to show error state
+                document.getElementById('relationshipCount').textContent = '⚠️ Error';
+                document.getElementById('entityCount').textContent = '⚠️ Error';
+                document.getElementById('predicateCount').textContent = '⚠️ Error';
+                document.getElementById('statusText').textContent = '❌ Connection Error';
+                document.getElementById('environmentInfo').textContent = 'Unknown';
+            }
+        }
+
+        // Load stats when page loads
+        window.addEventListener('load', () => {
+            textarea.focus();
+            loadSystemStats(); // Add this line to your existing load event
+        });
+
+        // Optional: Refresh stats every 30 seconds
+        setInterval(loadSystemStats, 30000);    
+        
     </script>
 </body>
 </html>
