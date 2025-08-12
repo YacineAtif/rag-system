@@ -50,7 +50,7 @@ weaviate_environments:
     url: "http://localhost:8080"  # If you had Weaviate on Aura
 
 claude:
-  api_key: "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"
+ # api_key: ""  # Set via ANTHROPIC_API_KEY environment variable
   model_name: "claude-3-5-haiku-20241022"
   max_tokens: 1000
   temperature: 0.1
