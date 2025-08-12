@@ -1,7 +1,8 @@
 import os
 import subprocess
 import shutil
-from typing import bool
+# bool is built-in in Python 3.12
+# from typing import bool
 import re
 import time
 import requests
