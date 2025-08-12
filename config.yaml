@@ -5,6 +5,10 @@ chunk_size: 2000
 chunk_overlap: 200
 development: true
 
+# Environment-based configuration
+# Use 'local' for Docker development, 'aura' for cloud deployment, 'railway' for Railway deployment
+environment: "railway"  # Change this to switch environments
+
 weaviate:
   url: "http://localhost:8080"
   index_name: "rag_docs"
@@ -12,13 +16,41 @@ weaviate:
 embedding:
   model_name: "sentence-transformers/all-MiniLM-L6-v2"
 
+# Neo4j configuration - supports local, aura, and railway
 neo4j:
-  uri: "bolt://localhost:7687"
-  user: "neo4j"
-  password: "password"
+  local:
+    uri: "bolt://localhost:7687"
+    user: "neo4j"
+    password: "password"
+    database: "neo4j"
+  aura:
+    uri: "neo4j+s://46914eda.databases.neo4j.io"
+    user: "neo4j"
+    password: "YfYmmwApHSt9alDtnPzfCl6BaA9uF62lgNAi3pH3nt4"
+    database: "neo4j"
+  railway:
+    uri: "bolt://turntable.proxy.rlwy.net:43560"
+    user: "neo4j"
+    password: "mg89wxdi38d1xytau4yd40d7telcxtqo"
+    database: "neo4j"
+  # For production deployment, use environment variables
+  production:
+    uri: "${NEO4J_URI}"
+    user: "${NEO4J_USERNAME}"
+    password: "${NEO4J_PASSWORD}"
+    database: "${NEO4J_DATABASE}"
+
+# Weaviate environment-specific configurations
+weaviate_environments:
+  local:
+    url: "http://localhost:8080"
+  railway:
+    url: "https://weaviate-production-55d6.up.railway.app"
+  aura:
+    url: "http://localhost:8080"  # If you had Weaviate on Aura
 
 claude:
-  api_key: ""
+  api_key: "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"
   model_name: "claude-3-5-haiku-20241022"
   max_tokens: 1000
   temperature: 0.1
