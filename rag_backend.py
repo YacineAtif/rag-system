@@ -85,11 +85,18 @@ class RAGBackend:
         print(f"🔗 Neo4j connection will use: {self._get_current_neo4j_uri()}")
 
         # Check if we should skip document processing
+        # Check processing mode
+        use_existing_data = os.getenv("USE_EXISTING_DATA", "false").lower() == "true"
         skip_processing = os.getenv("SKIP_DOCUMENT_PROCESSING", "false").lower() == "true"
-        if skip_processing:
+
+        if use_existing_data:
+            print("📊 Using existing data (USE_EXISTING_DATA=true)")
+            # Pipeline is initialized and connected, just don't rebuild
+        elif skip_processing:
             print("⏭️ Skipping document processing (SKIP_DOCUMENT_PROCESSING=true)")
         else:
             # Process documents and populate knowledge graph
+            print("🔄 Processing documents from scratch...")
             self.pipeline.process_documents_intelligently()
             if force_rebuild:
                 self.pipeline.force_rebuild_graph()
