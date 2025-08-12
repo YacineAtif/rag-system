@@ -20,25 +20,6 @@ os.environ['TF_CPP_MIN_LOG_LEVEL'] = '2'  # Suppress TensorFlow warnings
 app = Flask(__name__, static_folder="static", template_folder="templates")
 backend: RAGBackend | None = None
 
-
-    
-def ensure_weaviate_connected():
-    """Ensure Weaviate client is connected, reconnect if needed"""
-    global weaviate_client
-    try:
-        # Test if client is responsive
-        weaviate_client.schema.get()
-        return True
-    except Exception as e:
-        print(f"🔄 Weaviate disconnected, attempting reconnection: {e}")
-        try:
-            # Reconnect
-            weaviate_client.connect()
-            print("✅ Weaviate reconnected successfully")
-            return True
-        except Exception as reconnect_error:
-            print(f"❌ Weaviate reconnection failed: {reconnect_error}")
-            return False
         
 def get_backend() -> RAGBackend:
     global backend
@@ -88,7 +69,21 @@ def query() -> Response:
 
         def generate():
             try:
-                result = get_backend().query(user_query)
+                # Get backend and ensure it's connected
+                backend_instance = get_backend()
+                
+                # Try to reconnect Weaviate if needed
+                try:
+                    # Test backend connection before query
+                    result = backend_instance.query(user_query)
+                except Exception as connection_error:
+                    # If query fails, try to reinitialize backend
+                    print(f"🔄 Backend connection issue, reinitializing: {connection_error}")
+                    global backend
+                    backend = None  # Force reinitialization
+                    backend_instance = get_backend()
+                    result = backend_instance.query(user_query)
+                
                 answer = result.get("answer", "I don't know.")
                 
                 # Send metadata first
@@ -109,6 +104,7 @@ def query() -> Response:
                 yield "data: [DONE]\n\n"
                 
             except Exception as e:
+                print(f"❌ Query processing error: {e}")
                 error_payload = json.dumps({"error": str(e)})
                 yield f"data: {error_payload}\n\n"
                 yield "data: [DONE]\n\n"
@@ -116,24 +112,7 @@ def query() -> Response:
         return Response(generate(), mimetype="text/event-stream")
         
     except Exception as e:
-        return jsonify({"error": str(e)}), 500
-
-
-@app.route('/api/query', methods=['POST'])
-def query():
-    try:
-        data = request.get_json()
-        user_query = data.get('query', '')
-        
-        # Ensure Weaviate is connected before processing
-        if not ensure_weaviate_connected():
-            return jsonify({"error": "Weaviate connection unavailable"}), 500
-        
-        # Your existing query processing logic here...
-        # (the rest of your query handler code)
-        
-    except Exception as e:
-        print(f"❌ Query error: {e}")
+        print(f"❌ Query endpoint error: {e}")
         return jsonify({"error": str(e)}), 500
 
 
