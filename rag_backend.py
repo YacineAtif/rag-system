@@ -23,6 +23,9 @@ from haystack_integrations.components.retrievers.weaviate import (
     WeaviateEmbeddingRetriever,
 )
 
+# Import the updated Config class
+from backend.config import Config
+
 # Reuse the existing pipeline and utilities from the CLI module.
 from weaviate_rag_pipeline_transformers import (
     RAGPipeline,
@@ -36,10 +39,14 @@ class RAGBackend:
     """Backend helper that wraps the heavy RAG pipeline."""
 
     def __init__(self, config_path: str = "config.yaml", force_rebuild: bool = False):
-        # Load configuration and set up logging exactly as the CLI does.
+        # Load configuration using the updated Config class
+        self.config = Config(config_path)
+        print(f"🔧 RAGBackend using environment: {self.config.environment}")
+        
+        # Set up logging using the raw YAML for setup_logging function compatibility
         with open(config_path, "r") as f:
-            config = yaml.safe_load(f)
-        setup_logging(config)
+            config_dict = yaml.safe_load(f)
+        setup_logging(config_dict)
 
         self._ensure_infrastructure()
 
@@ -53,11 +60,19 @@ class RAGBackend:
             progress_bar=False,
             encode_kwargs={"convert_to_tensor": False},
         )
+        print("🔥 Warming up text embedder...")
         self.text_embedder.warm_up()
         retriever = WeaviateEmbeddingRetriever(document_store=self.document_store)
 
-        # Initialize pipeline from the original module
+        # Initialize pipeline with the updated Config object
+        # This will now use environment-based Neo4j configuration
         self.pipeline = RAGPipeline(self.document_store, retriever, self.text_embedder)
+        
+        # The RAGPipeline constructor uses CONFIG global, but we want to make sure
+        # it uses our environment-aware config. Let's override the graph builder config.
+        self.pipeline.graph_builder.config = self.config
+        
+        print(f"🔗 Neo4j connection will use: {self._get_current_neo4j_uri()}")
 
         # Process documents and populate knowledge graph
         self.pipeline.process_documents_intelligently()
@@ -66,12 +81,27 @@ class RAGBackend:
         else:
             self.pipeline.populate_knowledge_graph()
 
+    def _get_current_neo4j_uri(self) -> str:
+        """Get the Neo4j URI that will be used based on current environment."""
+        env = self.config.environment
+        if env == 'local' and hasattr(self.config.neo4j, 'local') and self.config.neo4j.local:
+            return self.config.neo4j.local.uri
+        elif env == 'aura' and hasattr(self.config.neo4j, 'aura') and self.config.neo4j.aura:
+            return self.config.neo4j.aura.uri
+        elif env == 'production' and hasattr(self.config.neo4j, 'production') and self.config.neo4j.production:
+            return self.config.neo4j.production.uri
+        else:
+            return self.config.neo4j.uri
+
     def _ensure_infrastructure(self) -> None:
         """Ensure required Docker services are running."""
         if check_docker_containers():
+            print("✅ Docker containers already running")
             return
+        print("🚀 Starting Docker infrastructure...")
         try:
             subprocess.run(["docker-compose", "up", "-d"], check=True)
+            print("✅ Docker containers started")
             # Give services a moment to start
             time.sleep(30)
         except subprocess.CalledProcessError as exc:  # pragma: no cover - runtime environment
@@ -87,7 +117,45 @@ class RAGBackend:
         result = self.pipeline.query_with_graph(query)
         if "answer" in result:
             result["answer"] = self._format_answer(result["answer"])
+        
+        # Add environment info to the result
+        result["environment"] = self.config.environment
+        result["neo4j_uri"] = self._get_current_neo4j_uri()
+        
         return result
+
+    def get_stats(self) -> dict:
+        """Get statistics from the knowledge graph."""
+        try:
+            with self.pipeline.graph_builder.driver.session() as session:
+                entity_result = session.run("MATCH (n:Entity) RETURN count(n) as count")
+                entity_count = entity_result.single()["count"]
+                
+                rel_result = session.run("MATCH ()-[r]->() RETURN count(r) as count")
+                rel_count = rel_result.single()["count"]
+            
+            return {
+                "entities": entity_count,
+                "relationships": rel_count,
+                "environment": self.config.environment,
+                "neo4j_uri": self._get_current_neo4j_uri()
+            }
+        except Exception as e:
+            return {
+                "entities": 0,
+                "relationships": 0,
+                "environment": self.config.environment,
+                "error": str(e)
+            }
+
+    def get_health(self) -> dict:
+        """Get health status with environment information."""
+        return {
+            "status": "ok",
+            "environment": self.config.environment,
+            "neo4j_uri": self._get_current_neo4j_uri(),
+            "weaviate_url": self.config.weaviate.url
+        }
 
 
 __all__ = ["RAGBackend"]
