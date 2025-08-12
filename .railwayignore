@@ -1,0 +1,35 @@
+# Python cache
+__pycache__/
+*.pyc
+*.pyo
+
+# Development files
+tests/
+interface/
+debug_chunks.py
+setup.sh
+
+# Docker files
+docker-compose.yml
+Dockerfile
+.dockerignore
+
+# Environment files
+.env
+.venv/
+rag-env/
+venv/
+
+# IDE files
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# Git
+.git/
+.gitignore

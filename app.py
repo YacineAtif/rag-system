@@ -21,6 +21,25 @@ app = Flask(__name__, static_folder="static", template_folder="templates")
 backend: RAGBackend | None = None
 
 
+    
+def ensure_weaviate_connected():
+    """Ensure Weaviate client is connected, reconnect if needed"""
+    global weaviate_client
+    try:
+        # Test if client is responsive
+        weaviate_client.schema.get()
+        return True
+    except Exception as e:
+        print(f"🔄 Weaviate disconnected, attempting reconnection: {e}")
+        try:
+            # Reconnect
+            weaviate_client.connect()
+            print("✅ Weaviate reconnected successfully")
+            return True
+        except Exception as reconnect_error:
+            print(f"❌ Weaviate reconnection failed: {reconnect_error}")
+            return False
+        
 def get_backend() -> RAGBackend:
     global backend
     if backend is None:
@@ -100,17 +119,21 @@ def query() -> Response:
         return jsonify({"error": str(e)}), 500
 
 
-@app.route("/api/environment")
-def get_environment() -> Response:
-    """Get current environment information."""
+@app.route('/api/query', methods=['POST'])
+def query():
     try:
-        backend_instance = get_backend()
-        return jsonify({
-            "environment": backend_instance.config.environment,
-            "neo4j_uri": backend_instance._get_current_neo4j_uri(),
-            "weaviate_url": backend_instance.config.weaviate.url
-        })
+        data = request.get_json()
+        user_query = data.get('query', '')
+        
+        # Ensure Weaviate is connected before processing
+        if not ensure_weaviate_connected():
+            return jsonify({"error": "Weaviate connection unavailable"}), 500
+        
+        # Your existing query processing logic here...
+        # (the rest of your query handler code)
+        
     except Exception as e:
+        print(f"❌ Query error: {e}")
         return jsonify({"error": str(e)}), 500
 
 
