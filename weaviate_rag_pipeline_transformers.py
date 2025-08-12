@@ -1,4 +1,7 @@
 import os
+import subprocess
+import shutil
+from typing import bool
 import re
 import time
 import requests
@@ -17,6 +20,9 @@ import yaml
 import warnings
 warnings.filterwarnings('ignore', message='.*Protobuf gencode version.*')
 warnings.filterwarnings('ignore', category=UserWarning, module='google.protobuf')
+
+
+
 
 
 import numpy as np
@@ -52,11 +58,80 @@ try:
 except Exception:  # pragma: no cover
     pass
 
+
+def get_neo4j_connection_config(config):
+    """
+    Get Neo4j connection configuration based on environment setting.
+    
+    Args:
+        config: Configuration object with environment and neo4j settings
+        
+    Returns:
+        dict: Connection parameters (uri, user, password, database)
+    """
+    # Determine which environment to use
+    env = getattr(config, 'environment', 'local')
+    print(f"🔧 Using Neo4j environment: {env}")
+    
+    # Get the appropriate environment config
+    if env == 'local' and hasattr(config.neo4j, 'local') and config.neo4j.local:
+        neo4j_config = config.neo4j.local
+    elif env == 'aura' and hasattr(config.neo4j, 'aura') and config.neo4j.aura:
+        neo4j_config = config.neo4j.aura
+    elif env == 'railway' and hasattr(config.neo4j, 'railway') and config.neo4j.railway:
+        neo4j_config = config.neo4j.railway
+    elif env == 'production' and hasattr(config.neo4j, 'production') and config.neo4j.production:
+        neo4j_config = config.neo4j.production
+    else:
+        # Fallback to main neo4j config for backward compatibility
+        print("📝 Using fallback Neo4j config")
+        neo4j_config = config.neo4j
+    
+    connection_config = {
+        'uri': neo4j_config.uri,
+        'user': neo4j_config.user,
+        'password': neo4j_config.password,
+        'database': getattr(neo4j_config, 'database', 'neo4j')
+    }
+    
+    print(f"🔗 Connecting to: {connection_config['uri']}")
+    return connection_config
+
+def create_neo4j_driver(config):
+    """
+    Create Neo4j driver with environment-based configuration.
+    
+    Args:
+        config: Configuration object
+        
+    Returns:
+        Neo4j driver instance
+    """
+    try:
+        from neo4j import GraphDatabase
+    except ImportError:
+        raise ImportError("neo4j package required for knowledge graph queries")
+    
+    conn_config = get_neo4j_connection_config(config)
+    
+    driver = GraphDatabase.driver(
+        conn_config['uri'],
+        auth=(conn_config['user'], conn_config['password'])
+    )
+    
+    return driver
+
+
 CONFIG = Config()
 
 logging.basicConfig()
 logger = logging.getLogger(__name__)
 logging.getLogger('neo4j.notifications').setLevel(logging.ERROR)
+
+
+
+
+
 
 
 def setup_logging(config):
@@ -577,10 +652,8 @@ def create_natural_answer(sentences, query):
 class Neo4jGraphBuilder:
     def __init__(self, config: Optional[Config] = None):
         self.config = config or CONFIG
-        self.driver = GraphDatabase.driver(
-            self.config.neo4j.uri,
-            auth=(self.config.neo4j.user, self.config.neo4j.password),
-        )
+        self.driver = create_neo4j_driver(self.config)
+        
         self.claude_extractor = LLMGenerator(model="claude-3-5-haiku-20241022")
 
     def extract_json_from_claude_response(self, response_text):
@@ -1386,34 +1459,111 @@ class RAGPipeline:
 
 
 # --- Main Pipeline ---
-def wait_for_weaviate(url="http://localhost:8080", max_retries=30):
+def wait_for_weaviate(url=None, max_retries=30):
+    """
+    Wait for Weaviate to be ready, with environment-aware URL handling.
+    """
+    # If no URL provided, determine from environment
+    if url is None:
+        environment = os.getenv("ENVIRONMENT", "local")
+        weaviate_url = os.getenv("WEAVIATE_URL", "http://localhost:8080")
+        
+        if environment == "railway":
+            url = weaviate_url  # Use the Railway URL from environment
+        else:
+            url = "http://localhost:8080"  # Default for local
+    
+    print(f"🔗 Waiting for Weaviate at: {url}")
+    
     for i in range(max_retries):
         try:
             response = requests.get(f"{url}/v1/.well-known/ready", timeout=5)
             if response.status_code == 200:
                 print("✅ Weaviate is ready!")
                 return True
-        except:
-            pass
-        print(f"⏳ Waiting for Weaviate... ({i+1}/{max_retries})")
+        except Exception as e:
+            if i == 0:  # Only show error details on first attempt
+                print(f"⏳ Connecting to Weaviate... (attempt {i+1}/{max_retries})")
+            else:
+                print(f"⏳ Waiting for Weaviate... ({i+1}/{max_retries})")
         time.sleep(3)
+    
+    print(f"❌ Weaviate not responding at {url} after {max_retries} attempts")
     return False
 
-def check_docker_containers():
-    """Check if required Docker containers are running"""
-    try:
-        result = subprocess.run(
-            ["docker", "ps", "--format", "{{.Names}}"], 
-            capture_output=True, text=True, check=True
-        )
-        running_containers = result.stdout.strip().split('\n')
+def check_docker_containers() -> bool:
+    """
+    Check if required infrastructure is available.
+    In cloud environments (Railway, Aura), skip Docker checks.
+    In local environment, verify Docker containers are running.
+    """
+    environment = os.getenv("ENVIRONMENT", "local")
+    
+    # For cloud environments, assume infrastructure is managed externally
+    if environment in ["railway", "aura", "production"]:
+        print(f"🌐 Running in {environment} environment - skipping Docker container checks")
+        return True
+    
+    # For local development, check if Docker is available
+    if environment == "local":
+        # Check if docker command exists
+        if not shutil.which("docker"):
+            print("❌ Docker command not found. Please install Docker.")
+            return False
         
-        weaviate_running = any('weaviate' in container for container in running_containers)
-        transformers_running = any('transformers' in container for container in running_containers)
-        
-        return weaviate_running and transformers_running
-    except subprocess.CalledProcessError:
-        return False
+        try:
+            # Check if Docker daemon is running
+            result = subprocess.run(
+                ["docker", "info"], 
+                capture_output=True, 
+                text=True, 
+                timeout=10
+            )
+            
+            if result.returncode != 0:
+                print("❌ Docker daemon is not running. Please start Docker.")
+                return False
+            
+            # Check for required containers (Weaviate, Neo4j)
+            containers_result = subprocess.run(
+                ["docker", "ps", "--format", "table {{.Names}}"], 
+                capture_output=True, 
+                text=True, 
+                timeout=10
+            )
+            
+            if containers_result.returncode != 0:
+                print("❌ Unable to check Docker containers.")
+                return False
+            
+            running_containers = containers_result.stdout.lower()
+            
+            # Check for Weaviate container
+            weaviate_running = any(name in running_containers for name in ['weaviate', 'rag-system-weaviate'])
+            
+            # Check for Neo4j container  
+            neo4j_running = any(name in running_containers for name in ['neo4j', 'rag-system-neo4j'])
+            
+            if not weaviate_running:
+                print("❌ Weaviate container not found. Please start your local Docker compose.")
+                return False
+                
+            if not neo4j_running:
+                print("❌ Neo4j container not found. Please start your local Docker compose.")
+                return False
+            
+            print("✅ Local Docker containers are running")
+            return True
+            
+        except subprocess.TimeoutExpired:
+            print("❌ Docker command timed out.")
+            return False
+        except Exception as e:
+            print(f"❌ Error checking Docker containers: {e}")
+            return False
+    
+    # Default to True for unknown environments
+    return True
 
 def main():
     args = parse_args()
