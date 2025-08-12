@@ -175,31 +175,31 @@ class RAGBackend:
     
     def ensure_weaviate_connected(self) -> bool:
     """Ensure Weaviate connection is working, reinitialize if needed"""
-    try:
-        # Test if Weaviate is responsive by trying to get documents
-        test_docs = self.document_store.filter_documents(limit=1)
-        return True
-    except Exception as e:
-        print(f"🔄 Weaviate connection issue detected: {e}")
         try:
-            # Reinitialize Weaviate components
-            print("🔄 Reinitializing Weaviate components...")
-            weaviate_url = self._get_current_weaviate_url()
-            
-            # Create new document store
-            self.document_store = WeaviateDocumentStore(url=weaviate_url)
-            
-            # Create new retriever with the new document store
-            retriever = WeaviateEmbeddingRetriever(document_store=self.document_store)
-            
-            # Update the pipeline's retriever
-            self.pipeline.retriever = retriever
-            
-            print("✅ Weaviate components reinitialized successfully")
+            # Test if Weaviate is responsive by trying to get documents
+            test_docs = self.document_store.filter_documents(limit=1)
             return True
-        except Exception as reconnect_error:
-            print(f"❌ Failed to reinitialize Weaviate: {reconnect_error}")
-            return False
+        except Exception as e:
+            print(f"🔄 Weaviate connection issue detected: {e}")
+            try:
+                # Reinitialize Weaviate components
+                print("🔄 Reinitializing Weaviate components...")
+                weaviate_url = self._get_current_weaviate_url()
+
+                # Create new document store
+                self.document_store = WeaviateDocumentStore(url=weaviate_url)
+
+                # Create new retriever with the new document store
+                retriever = WeaviateEmbeddingRetriever(document_store=self.document_store)
+
+                # Update the pipeline's retriever
+                self.pipeline.retriever = retriever
+
+                print("✅ Weaviate components reinitialized successfully")
+                return True
+            except Exception as reconnect_error:
+                print(f"❌ Failed to reinitialize Weaviate: {reconnect_error}")
+                return False
     
     
     
