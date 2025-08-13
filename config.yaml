@@ -1,7 +1,7 @@
 # Configuration for the I2Connect RAG system
 
 # Which environment to use: "local" for all local services, "railway" for Railway-hosted services.
-environment: "local"
+environment: "railway"
 
 # Folder containing source documents to index
 documents_folder: "documents"
