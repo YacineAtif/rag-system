@@ -577,34 +577,37 @@
         function formatResponse(text) {
             let formatted = text;
 
-            // Convert numbered headings
+            // Convert numbered headings (keep as headings, don't turn into lists)
             formatted = formatted.replace(/^(\d+\.\s+[^:\n]+):\s*$/gm, '<h4>$1</h4>');
             formatted = formatted.replace(/^([A-Za-z][^:\n]+):\s*$/gm, '<h4>$1</h4>');
 
             // Bold text
             formatted = formatted.replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>');
 
-            // Lists
-            formatted = formatted.replace(/^\s*\d+\.\s+(.+?)$/gm, '<li class="numbered">$1</li>');
+            // Handle lists more carefully - avoid converting numbered headings
+            // Only convert bullet points to lists, not numbered items that are headings
             formatted = formatted.replace(/^\s*[-*•]\s+(.+?)$/gm, '<li class="bullet">$1</li>');
-
-            // Wrap lists
-            formatted = formatted.replace(/(<li class="numbered">.*?<\/li>\s*)+/gs, match => `<ol>${match}</ol>`);
+            
+            // Wrap bullet lists only
             formatted = formatted.replace(/(<li class="bullet">.*?<\/li>\s*)+/gs, match => `<ul>${match}</ul>`);
 
             // Clean classes
-            formatted = formatted.replace(/<li class="(?:numbered|bullet)">/g, '<li>');
+            formatted = formatted.replace(/<li class="bullet">/g, '<li>');
 
-            // Paragraphs and line breaks
-            formatted = formatted.replace(/\n\n+/g, '</p><p>');
-            formatted = formatted.replace(/\n/g, '<br>');
-
-            if (!formatted.startsWith('<h4>') && !formatted.startsWith('<ul>')) {
-                formatted = '<p>' + formatted;
-            }
-            if (!formatted.endsWith('</p>') && !formatted.endsWith('</ul>')) {
-                formatted = formatted + '</p>';
-            }
+            // Handle paragraphs and line breaks more carefully
+            // Split by double newlines for paragraphs
+            let paragraphs = formatted.split(/\n\n+/);
+            
+            formatted = paragraphs.map(para => {
+                // Don't wrap headings or lists in paragraph tags
+                if (para.startsWith('<h4>') || para.startsWith('<ul>') || para.startsWith('<ol>')) {
+                    return para;
+                }
+                // Convert single newlines to <br> within paragraphs
+                para = para.replace(/\n/g, '<br>');
+                // Wrap in paragraph tags if not empty
+                return para.trim() ? `<p>${para}</p>` : '';
+            }).filter(para => para).join('');
 
             return formatted;
         }
