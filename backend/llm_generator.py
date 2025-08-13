@@ -3,13 +3,12 @@ from typing import List, Optional
 
 try:
     from anthropic import Anthropic
-except Exception:  # pragma: no cover - anthropic optional
+except ImportError:  # pragma: no cover - anthropic optional
     Anthropic = None  # type: ignore
-class LLMGenerator:
 
+class LLMGenerator:
     """Lightweight wrapper for the Anthropic Claude API."""
-    """Minimal wrapper around the Anthropic client."""
-    """Simple wrapper around the Claude API."""
+
     def __init__(
         self,
         model: str = "claude-3-5-haiku-20241022",
@@ -17,10 +16,6 @@ class LLMGenerator:
         max_tokens: int = 512,
         temperature: float = 0.1,
     ) -> None:
-
-        self.api_key = api_key or os.getenv("ANTHROPIC_API_KEY")
-
-        self.api_key = api_key or os.getenv("ANTHROPIC_API_KEY")
         self.model = model
         self.api_key = api_key or os.getenv("ANTHROPIC_API_KEY")
         self.max_tokens = max_tokens
@@ -39,7 +34,6 @@ class LLMGenerator:
         if Anthropic is None:
             raise ImportError("anthropic package is required to use LLMGenerator")
 
-        
         client = Anthropic(api_key=self.api_key)
         context = " ".join(context_sentences[:8])
         user_content = f"Context:\n{context}\n\nQuestion:\n{query}"
@@ -48,16 +42,7 @@ class LLMGenerator:
         
         messages = [{"role": "user", "content": user_content}]
 
-        response = client.messages.create(
-            model=self.model,
-            max_tokens=self.max_tokens,
-            temperature=self.temperature,
-            messages=messages,
-            system=system_prompt,
-        )
-        return "".join(block.text for block in response.content).strip()
-        
-        try:  # pragma: no cover - runtime errors
+        try:
             response = client.messages.create(
                 model=self.model,
                 max_tokens=self.max_tokens,
@@ -66,6 +51,5 @@ class LLMGenerator:
                 system=system_prompt,
             )
             return "".join(block.text for block in response.content).strip()
-        except Exception as e:  # pragma: no cover - runtime errors
-            raise RuntimeError(f"Anthropic API call failed: {e}") from e
+        except Exception as e:
             raise RuntimeError(f"Anthropic API call failed: {e}") from e

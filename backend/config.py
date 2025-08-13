@@ -1,27 +1,22 @@
-"""Configuration management for the Claude-based RAG system."""
+"""Configuration management for the RAG system with local/railway modes."""
 
 from dataclasses import dataclass, field
-from typing import Optional, List, Dict, Any
 import os
+import yaml
 from pathlib import Path
+from typing import Dict, Any, Optional
 
-try:
-    import yaml
-    YAML_AVAILABLE = True
-except Exception:  # pragma: no cover - optional
-    YAML_AVAILABLE = False
-
+@dataclass
+class Neo4jConfig:
+    uri: str = "bolt://localhost:7687"
+    user: str = "neo4j"
+    password: str = "password"
+    database: str = "neo4j"
 
 @dataclass
 class WeaviateConfig:
     url: str = "http://localhost:8080"
-    index_name: str = "rag_docs"
-
-
-@dataclass
-class EmbeddingConfig:
-    model_name: str = "sentence-transformers/all-MiniLM-L6-v2"
-
+    index_name: str = "Default"
 
 @dataclass
 class ClaudeConfig:
@@ -30,311 +25,106 @@ class ClaudeConfig:
     max_tokens: int = 1000
     temperature: float = 0.1
 
-
-@dataclass
-class Neo4jEnvironmentConfig:
-    """Configuration for a single Neo4j environment."""
-    uri: str = "bolt://localhost:7687"
-    user: str = ""
-    password: str = ""
-    database: str = "neo4j"
-
-
-@dataclass
-class Neo4jConfig:
-    """Configuration for the Neo4j knowledge graph with environment support."""
-    # Legacy single config for backward compatibility
-    uri: str = "bolt://localhost:7687"
-    user: str = ""
-    password: str = ""
-    database: str = "neo4j"
-    
-    # New environment-based configs
-    local: Optional[Neo4jEnvironmentConfig] = None
-    aura: Optional[Neo4jEnvironmentConfig] = None
-    railway: Optional[Neo4jEnvironmentConfig] = None  # Add railway support
-    production: Optional[Neo4jEnvironmentConfig] = None
-
-    def __post_init__(self):
-        # Initialize environment configs if not provided
-        if self.local is None:
-            self.local = Neo4jEnvironmentConfig()
-        if self.aura is None:
-            self.aura = Neo4jEnvironmentConfig()
-        if self.railway is None:
-            self.railway = Neo4jEnvironmentConfig()
-        if self.production is None:
-            self.production = Neo4jEnvironmentConfig()
-
-
-@dataclass
-class RetrievalConfig:
-    default_top_k: int = 5
-    partnership_top_k: int = 5
-    factual_top_k: int = 5
-    similarity_threshold: float = 0.3
-    enable_section_reranking: bool = True
-    section_name_boost: float = 1.0
-
-
-@dataclass
-class PromptingConfig:
-    context_instructions: dict = field(default_factory=dict)
-    system_prompt: str = ""
-
-
-@dataclass
-class HardwareConfig:
-    use_gpu: bool = False
-    gpu_memory_fraction: float = 0.0
-    num_threads: int = 1
-    max_model_memory: str = ""
-    enable_model_offloading: bool = False
-    enable_response_cache: bool = False
-    cache_size: int = 0
-    cache_ttl: int = 0
-
-
 @dataclass
 class ChunkProcessingConfig:
-    add_section_markers: bool = True
-    add_metadata_context: bool = True
-    max_context_length: int = 100
-    section_patterns: list = field(default_factory=list)
-
-
-@dataclass
-class QueryProcessingConfig:
-    expand_synonyms: bool = False
-    synonyms: dict = field(default_factory=dict)
-
+    section_patterns: list = field(default_factory=lambda: [
+        r"^#+\s*(.+)$",  # Markdown headers
+        r"^([A-Z][^:]*):$",  # Title case sections ending with colon
+        r"^\d+\.\s*([^:]+):?$"  # Numbered sections
+    ])
 
 @dataclass
-class DomainDetectionConfig:
-    enabled: bool = False
-    domain_keywords: dict = field(default_factory=dict)
-
-
-@dataclass
-class LoggingConfig:
-    log_chunk_retrieval: bool = False
-    log_section_matching: bool = False
-    log_query_classification: bool = False
-    log_model_selection: bool = False
-    log_confidence_scores: bool = False
-    log_performance_metrics: bool = False
-    level: str = "INFO"
-    file: str = "logs/rag_system.log"
-    track_model_performance: bool = False
-    save_response_analytics: bool = False
-
-
-@dataclass
-class OODConfig:
-    """Out-of-domain verification settings."""
-    enabled: bool = False
-    similarity_threshold: float = 0.25
-    similarity_check_enabled: bool = True
-    min_neo4j_relations: int = 1
-    domain_keywords: List[str] = field(default_factory=list)
-
-
 class Config:
-    """Central configuration management."""
+    documents_folder: str = "documents"
+    chunk_size: int = 2000
+    chunk_overlap: int = 200
+    development: bool = True
+    environment: str = "local"
+    weaviate: WeaviateConfig = field(default_factory=WeaviateConfig)
+    neo4j: Neo4jConfig = field(default_factory=Neo4jConfig)
+    claude: ClaudeConfig = field(default_factory=ClaudeConfig)
+    chunk_processing: ChunkProcessingConfig = field(default_factory=ChunkProcessingConfig)
+    config_path: str = "config.yaml"
 
-    def __init__(self, config_path: str = "config.yaml"):
-        self.documents_folder = "documents"
-        self.chunk_size = 2000
-        self.chunk_overlap = 200
-        self.development = True
-        self.environment = "local"  # Add environment setting
+    def __post_init__(self):
+        # Load YAML configuration if available
+        if Path(self.config_path).exists():
+            try:
+                with open(self.config_path, "r") as f:
+                    data = yaml.safe_load(f) or {}
 
-        self.weaviate = WeaviateConfig()
-        self.embedding = EmbeddingConfig()
-        self.claude = ClaudeConfig()
-        self.neo4j = Neo4jConfig()
-        self.retrieval = RetrievalConfig()
-        self.prompting = PromptingConfig()
-        self.hardware = HardwareConfig()
-        self.chunk_processing = ChunkProcessingConfig()
-        self.query_processing = QueryProcessingConfig()
-        self.domain_detection = DomainDetectionConfig()
-        self.logging = LoggingConfig()
-        self.ood = OODConfig()
-        self.section_priorities = {}
-        self.semantic_metadata = {}
-        self.weaviate_environments = {}  # Add support for environment-specific Weaviate URLs
+                # Core settings
+                self.environment = data.get("environment", self.environment)
+                self.documents_folder = data.get("documents_folder", self.documents_folder)
+                self.chunk_size = data.get("chunk_size", self.chunk_size)
+                self.chunk_overlap = data.get("chunk_overlap", self.chunk_overlap)
+                self.development = data.get("development", self.development)
 
-        self.config_path = config_path
-        if YAML_AVAILABLE and Path(config_path).exists():
-            self._load_from_yaml(config_path)
-        elif Path(config_path).exists():
-            print(f"Warning: {config_path} found but PyYAML not available")
+                # Environment-specific settings
+                env_cfg = data.get("environments", {}).get(self.environment, {})
+                weav_cfg = env_cfg.get("weaviate", {})
+                neo_cfg = env_cfg.get("neo4j", {})
 
-        self._apply_env_overrides()
+                self.weaviate.url = weav_cfg.get("url", self.weaviate.url)
+                self.weaviate.index_name = weav_cfg.get("index_name", self.weaviate.index_name)
+                self.neo4j.uri = neo_cfg.get("uri", self.neo4j.uri)
+                self.neo4j.user = neo_cfg.get("user", self.neo4j.user)
+                self.neo4j.password = neo_cfg.get("password", self.neo4j.password)
+                self.neo4j.database = neo_cfg.get("database", self.neo4j.database)
 
-    def _load_from_yaml(self, path: str) -> None:
-        try:
-            with open(path, "r") as f:
-                data = yaml.safe_load(f) or {}
+                claude_cfg = data.get("claude", {})
+                self.claude.model_name = claude_cfg.get("model_name", self.claude.model_name)
+                self.claude.max_tokens = claude_cfg.get("max_tokens", self.claude.max_tokens)
+                self.claude.temperature = claude_cfg.get("temperature", self.claude.temperature)
 
-            self.documents_folder = data.get("documents_folder", self.documents_folder)
-            self.chunk_size = data.get("chunk_size", self.chunk_size)
-            self.chunk_overlap = data.get("chunk_overlap", self.chunk_overlap)
-            self.development = data.get("development", self.development)
-            self.environment = data.get("environment", self.environment)  # Load environment
+            except Exception as e:
+                print(f"⚠️ Warning: Error loading config file {self.config_path}: {e}")
 
-            # Load Weaviate environment configurations
-            if "weaviate_environments" in data:
-                self.weaviate_environments = data["weaviate_environments"]
-
-            # Handle Neo4j configuration specially
-            if "neo4j" in data:
-                neo4j_data = data["neo4j"]
-                
-                # Load environment-specific configs
-                if "local" in neo4j_data:
-                    local_config = neo4j_data["local"]
-                    self.neo4j.local = Neo4jEnvironmentConfig(
-                        uri=local_config.get("uri", "bolt://localhost:7687"),
-                        user=local_config.get("user", "neo4j"),
-                        password=local_config.get("password", "password"),
-                        database=local_config.get("database", "neo4j")
-                    )
-                
-                if "aura" in neo4j_data:
-                    aura_config = neo4j_data["aura"]
-                    self.neo4j.aura = Neo4jEnvironmentConfig(
-                        uri=aura_config.get("uri", ""),
-                        user=aura_config.get("user", "neo4j"),
-                        password=aura_config.get("password", ""),
-                        database=aura_config.get("database", "neo4j")
-                    )
-                
-                if "railway" in neo4j_data:
-                    railway_config = neo4j_data["railway"]
-                    self.neo4j.railway = Neo4jEnvironmentConfig(
-                        uri=railway_config.get("uri", ""),
-                        user=railway_config.get("user", "neo4j"),
-                        password=railway_config.get("password", ""),
-                        database=railway_config.get("database", "neo4j")
-                    )
-                
-                if "production" in neo4j_data:
-                    prod_config = neo4j_data["production"]
-                    self.neo4j.production = Neo4jEnvironmentConfig(
-                        uri=prod_config.get("uri", ""),
-                        user=prod_config.get("user", ""),
-                        password=prod_config.get("password", ""),
-                        database=prod_config.get("database", "neo4j")
-                    )
-
-            # Handle other configs normally
-            config_mappings = {
-                "weaviate": self.weaviate,
-                "embedding": self.embedding,
-                "claude": self.claude,
-                "retrieval": self.retrieval,
-                "prompting": self.prompting,
-                "hardware": self.hardware,
-                "chunk_processing": self.chunk_processing,
-                "query_processing": self.query_processing,
-                "domain_detection": self.domain_detection,
-                "logging": self.logging,
-                "ood": self.ood,
-            }
-
-            for name, obj in config_mappings.items():
-                if name in data:
-                    for key, value in data[name].items():
-                        if hasattr(obj, key):
-                            setattr(obj, key, value)
-
-            if "section_priorities" in data:
-                self.section_priorities = data.get("section_priorities", {})
-            if "semantic_metadata" in data:
-                self.semantic_metadata = data.get("semantic_metadata", {})
-        except Exception as e:
-            print(f"Warning: Could not load config from {path}: {e}")
-
-    def _apply_env_overrides(self) -> None:
-        self.development = os.getenv("DEVELOPMENT", str(self.development)).lower() == "true"
-        self.documents_folder = os.getenv("DOCUMENTS_FOLDER", self.documents_folder)
-        
-        # CRITICAL FIX: Apply environment override FIRST
-        self.environment = os.getenv("ENVIRONMENT", self.environment)
-        
-        # Apply environment-specific Weaviate URL AFTER environment is set
-        if hasattr(self, 'weaviate_environments') and self.environment in self.weaviate_environments:
-            self.weaviate.url = self.weaviate_environments[self.environment]["url"]
-        
         # Environment variable overrides
-        if os.getenv("WEAVIATE_URL"):
-            self.weaviate.url = os.getenv("WEAVIATE_URL")
-        if os.getenv("ANTHROPIC_API_KEY"):
-            self.claude.api_key = os.getenv("ANTHROPIC_API_KEY")
-        
-        # IMPORTANT: Apply Railway-specific environment variables for Neo4j
-        if self.environment == "railway":
-            # Set Railway Neo4j config from environment variables or use hardcoded values
-            if not self.neo4j.railway:
-                self.neo4j.railway = Neo4jEnvironmentConfig()
-            
-            # Use environment variables if available, otherwise use Railway defaults
-            self.neo4j.railway.uri = os.getenv("NEO4J_URI", "bolt://turntable.proxy.rlwy.net:43560")
-            self.neo4j.railway.user = os.getenv("NEO4J_USER", "neo4j")
-            self.neo4j.railway.password = os.getenv("NEO4J_PASSWORD", "mg89wxdi38d1xytau4yd40d7telcxtqo")
-            self.neo4j.railway.database = os.getenv("NEO4J_DATABASE", "neo4j")
-            
-            print(f"🚀 Railway Neo4j configured: {self.neo4j.railway.uri}")
-        
-        # Handle environment variables for production Neo4j
-        if os.getenv("NEO4J_URI"):
-            if self.neo4j.production is None:
-                self.neo4j.production = Neo4jEnvironmentConfig()
-            self.neo4j.production.uri = os.getenv("NEO4J_URI")
-        if os.getenv("NEO4J_USER"):
-            if self.neo4j.production is None:
-                self.neo4j.production = Neo4jEnvironmentConfig()
-            self.neo4j.production.user = os.getenv("NEO4J_USER")
-        if os.getenv("NEO4J_PASSWORD"):
-            if self.neo4j.production is None:
-                self.neo4j.production = Neo4jEnvironmentConfig()
-            self.neo4j.production.password = os.getenv("NEO4J_PASSWORD")
-        if os.getenv("NEO4J_DATABASE"):
-            if self.neo4j.production is None:
-                self.neo4j.production = Neo4jEnvironmentConfig()
-            self.neo4j.production.database = os.getenv("NEO4J_DATABASE")
+        env_override = os.getenv("ENVIRONMENT")
+        if env_override:
+            self.environment = env_override
 
-    def validate(self) -> List[str]:
-        errors = []
-        if not Path(self.documents_folder).exists() and not self.development:
-            errors.append(f"Documents folder not found: {self.documents_folder}")
+        weav_url = os.getenv("WEAVIATE_URL")
+        if weav_url:
+            self.weaviate.url = weav_url
+
+        neo_uri = os.getenv("NEO4J_URI")
+        if neo_uri:
+            self.neo4j.uri = neo_uri
+        neo_user = os.getenv("NEO4J_USER")
+        if neo_user:
+            self.neo4j.user = neo_user
+        neo_pwd = os.getenv("NEO4J_PASSWORD")
+        if neo_pwd:
+            self.neo4j.password = neo_pwd
+        neo_db = os.getenv("NEO4J_DATABASE")
+        if neo_db:
+            self.neo4j.database = neo_db
+
+        api_key = os.getenv("ANTHROPIC_API_KEY")
+        if api_key:
+            self.claude.api_key = api_key
+
+        dev_env = os.getenv("DEVELOPMENT")
+        if dev_env:
+            self.development = dev_env.lower() == "true"
+
+    def validate(self) -> None:
+        """Basic configuration validation."""
+        if not Path(self.documents_folder).exists():
+            print(f"Warning: Documents folder not found: {self.documents_folder}")
         if self.chunk_size <= self.chunk_overlap:
-            errors.append("Chunk size must be larger than overlap")
+            print("Warning: Chunk size must be larger than overlap")
         if self.chunk_size <= 0 or self.chunk_overlap < 0:
-            errors.append("Chunk size and overlap must be positive")
-        return errors
-
-    def setup_directories(self) -> None:
-        Path(self.documents_folder).mkdir(exist_ok=True)
-        Path("logs").mkdir(exist_ok=True)
+            print("Warning: Chunk size and overlap must be positive")
 
     def get_summary(self) -> dict:
-        # Get current environment Neo4j config
-        neo4j_env_config = getattr(self.neo4j, self.environment, None)
-        neo4j_uri = neo4j_env_config.uri if neo4j_env_config else self.neo4j.uri
-        
+        """Return a summary of key configuration settings."""
         return {
             "environment": self.environment,
             "documents_folder": self.documents_folder,
-            "chunk_size": self.chunk_size,
-            "chunk_overlap": self.chunk_overlap,
-            "development_mode": self.development,
+            "neo4j_uri": self.neo4j.uri,
             "weaviate_url": self.weaviate.url,
-            "embedding_model": self.embedding.model_name,
-            "claude_model": self.claude.model_name,
-            "retrieval_default_top_k": self.retrieval.default_top_k,
-            "use_gpu": self.hardware.use_gpu,
-            "neo4j_uri": neo4j_uri,
+            "claude_model": self.claude.model_name
         }

@@ -1,152 +1,45 @@
-# RAG System Configuration for Claude Haiku
+# Configuration for the I2Connect RAG system
 
+# Which environment to use: "local" for all local services, "railway" for Railway-hosted services.
+environment: "local"
+
+# Folder containing source documents to index
 documents_folder: "documents"
+
+# Chunking parameters for splitting documents
 chunk_size: 2000
 chunk_overlap: 200
+
+# Development flag; set to false in production
 development: true
 
-# Environment-based configuration
-# Use 'local' for Docker development, 'aura' for cloud deployment, 'railway' for Railway deployment
-environment: "railway"  # Change this to switch environments
-
-weaviate:
-  url: "http://localhost:8080"
-  index_name: "rag_docs"
-
-embedding:
-  model_name: "sentence-transformers/all-MiniLM-L6-v2"
-
-# Neo4j configuration - supports local, aura, and railway
-neo4j:
-  local:
-    uri: "bolt://localhost:7687"
-    user: "neo4j"
-    password: "password"
-    database: "neo4j"
-  aura:
-    uri: "neo4j+s://46914eda.databases.neo4j.io"
-    user: "neo4j"
-    password: "YfYmmwApHSt9alDtnPzfCl6BaA9uF62lgNAi3pH3nt4"
-    database: "neo4j"
-  railway:
-    uri: "bolt://turntable.proxy.rlwy.net:43560"
-    user: "neo4j"
-    password: "mg89wxdi38d1xytau4yd40d7telcxtqo"
-    database: "neo4j"
-  # For production deployment, use environment variables
-  production:
-    uri: "${NEO4J_URI}"
-    user: "${NEO4J_USERNAME}"
-    password: "${NEO4J_PASSWORD}"
-    database: "${NEO4J_DATABASE}"
-
-# Weaviate environment-specific configurations
-weaviate_environments:
-  local:
-    url: "http://localhost:8080"
-  railway:
-    url: "https://weaviate-production-55d6.up.railway.app"
-  aura:
-    url: "http://localhost:8080"  # If you had Weaviate on Aura
-
 claude:
- # api_key: ""  # Set via ANTHROPIC_API_KEY environment variable
   model_name: "claude-3-5-haiku-20241022"
   max_tokens: 1000
   temperature: 0.1
 
-retrieval:
-  default_top_k: 5
-  partnership_top_k: 7
-  factual_top_k: 4
-  similarity_threshold: 0.3
-  enable_section_reranking: true
-  section_name_boost: 3.0
+# Environment-specific settings
+environments:
+  local:
+    # Use a locally running Weaviate instance
+    weaviate:
+      url: "http://localhost:8080"
+      index_name: "Default"
+    # Use a locally running Neo4j instance
+    neo4j:
+      uri: "bolt://localhost:7687"
+      user: "neo4j"
+      password: "password"
+      database: "neo4j"
 
-prompting:
-  context_instructions:
-    partnership: "Focus on specific organization names, roles, and contributions."
-    technical: "Provide detailed technical information."
-    factual: "Extract the most accurate and specific factual information."
-    methodology: "Explain the methodology or approach in detail."
-    general: "Synthesize the information into coherent, natural language."
-
-chunk_processing:
-  add_section_markers: true
-  add_metadata_context: true
-  max_context_length: 100
-  section_patterns:
-    - "^#{1,6}\\s+(.+)"
-    - "^\\*\\*(.+)\\*\\*:?"
-    - "^\\d+\\.\\s+(.+)"
-
-# Logging Configuration
-logging:
-  level: WARNING
-  enable_debug_components: false
-  components:
-    httpcore: WARNING
-    anthropic: WARNING
-    urllib3: WARNING
-    neo4j: WARNING
-    neo4j.notifications: ERROR
-    httpx: WARNING
-    sentence_transformers: WARNING
-    multi_layer_ood: WARNING
-    graph_semantic_analyzer: WARNING
-    query_normalizer: WARNING
-    main: WARNING
-  file: "logs/rag_system.log"
-  suppress_warnings: true
-  show_progress_bars: false
-  clean_output: true
-
-hardware:
-  use_gpu: false
-  num_threads: 4
-
-ood:
-  enabled: true
-  similarity_threshold: 0.25
-  similarity_check_enabled: true
-  domain_keywords:
-    - evidence theory
-  min_neo4j_relations: 1
-
-ood_detection:
-  enabled: true
-  similarity_threshold: 0.15
-  graph_connectivity_threshold: 0.1
-  context_quality_threshold: 0.7
-  generation_confidence_threshold: 0.4
-
-  keywords:
-    tier_1_critical:
-      core_concepts: ["evidence theory", "dempster shafer", "uncertainty reasoning"]
-      projects: ["i2connect", "concept 1", "simulation framework"]
-      organizations: ["scania", "smart eye", "university of skövde", "viscando"]
-    tier_2_important:
-      technologies: ["driver monitoring", "gaze tracking", "adas", "vehicle sensors"]
-      safety_terms: ["traffic safety", "road safety", "collision avoidance"]
-    tier_3_contextual:
-      general_terms: ["system", "analysis", "monitoring", "detection"]
-
-  quality_gates:
-    min_context_relevance: 0.5
-    min_passage_count: 2
-    max_contradiction_score: 0.3
-    min_information_density: 0.4
-
-  abstention:
-    enable_informed_refusal: true
-    enable_partial_answers: true
-    enable_clarification_requests: true
-    confidence_explanation: true
-
-  response_verification:
-    relevance_threshold: 0.15
-    min_relevant_passages: 2
-    lexical_similarity_threshold: 0.3
-    max_entropy_threshold: 2.0
-    mean_entropy_threshold: 1.5
-    sar_threshold: 0.0
+  railway:
+    # Use your Railway-hosted Weaviate endpoint
+    weaviate:
+      url: "https://weaviate-production-55d6.up.railway.app"
+      index_name: "Default"
+    # Use your Railway-hosted Neo4j proxy
+    neo4j:
+      uri: "bolt://turntable.proxy.rlwy.net:43560"
+      user: "neo4j"
+      password: "mg89wxdi38d1xytau4yd40d7telcxtqo"
+      database: "neo4j"

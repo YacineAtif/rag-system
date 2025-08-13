@@ -1,13 +1,38 @@
 """Flask web application providing API access to the RAG backend."""
+
 from __future__ import annotations
+
+import warnings
+import os
+
+# Suppress all protobuf warnings
+warnings.filterwarnings('ignore', message='.*Protobuf gencode version.*')
+warnings.filterwarnings('ignore', category=UserWarning, module='google.protobuf')
+
+# Additional warning suppressions
+warnings.filterwarnings('ignore', message='.*MessageFactory.*')
+warnings.filterwarnings('ignore', category=ResourceWarning)
+warnings.filterwarnings('ignore', category=DeprecationWarning, module='neo4j')
+
+# Environment variables to reduce noise
+os.environ['TF_CPP_MIN_LOG_LEVEL'] = '3'  # Suppress TensorFlow
+os.environ['TOKENIZERS_PARALLELISM'] = 'false'  # Suppress tokenizer warnings
+os.environ['HF_HUB_DISABLE_PROGRESS_BARS'] = 'true'  # Suppress HuggingFace progress
+os.environ['PROTOBUF_PYTHON_IMPLEMENTATION'] = 'python'  # Force Python protobuf
+
 
 import json
 import time
 import re
 from flask import Flask, request, jsonify, Response, render_template
 
-from rag_backend import RAGBackend
-
+# Add error handling for missing modules
+try:
+    from rag_backend import RAGBackend
+except ImportError as e:
+    print(f"❌ Import error: {e}")
+    print("Please ensure all required modules are available")
+    exit(1)
 
 import warnings
 import os
@@ -22,11 +47,16 @@ backend: RAGBackend | None = None
 
         
 def get_backend() -> RAGBackend:
+    """Get or initialize the RAG backend singleton."""
     global backend
     if backend is None:
         print("🔧 Initializing RAGBackend...")
-        backend = RAGBackend()
-        print("✅ RAGBackend initialized successfully")
+        try:
+            backend = RAGBackend()
+            print("✅ RAGBackend initialized successfully")
+        except Exception as e:
+            print(f"❌ Failed to initialize RAGBackend: {e}")
+            raise
     return backend
 
 
@@ -34,12 +64,15 @@ def get_backend() -> RAGBackend:
 def health() -> Response:
     """Health check endpoint with environment information."""
     try:
-        health_info = get_backend().get_health()
+        backend_instance = get_backend()
+        health_info = backend_instance.get_health()
         return jsonify(health_info)
     except Exception as e:
+        print(f"❌ Health check failed: {e}")
         return jsonify({
             "status": "error", 
-            "message": str(e)
+            "message": str(e),
+            "environment": "unknown"
         }), 500
 
 
@@ -47,12 +80,15 @@ def health() -> Response:
 def stats() -> Response:
     """Return knowledge graph statistics with environment info."""
     try:
-        stats_info = get_backend().get_stats()
+        backend_instance = get_backend()
+        stats_info = backend_instance.get_stats()
         return jsonify(stats_info)
     except Exception as e:
+        print(f"❌ Stats retrieval failed: {e}")
         return jsonify({
             "entities": 0,
             "relationships": 0,
+            "environment": "unknown",
             "error": str(e)
         }), 500
 
@@ -72,15 +108,14 @@ def query() -> Response:
                 # Get backend and ensure it's connected
                 backend_instance = get_backend()
                 
-                # Try to reconnect Weaviate if needed
+                # Try to query with error handling
                 try:
-                    # Test backend connection before query
                     result = backend_instance.query(user_query)
                 except Exception as connection_error:
-                    # If query fails, try to reinitialize backend
                     print(f"🔄 Backend connection issue, reinitializing: {connection_error}")
+                    # Force reinitialization
                     global backend
-                    backend = None  # Force reinitialization
+                    backend = None
                     backend_instance = get_backend()
                     result = backend_instance.query(user_query)
                 
@@ -123,4 +158,14 @@ def index() -> str:
 
 if __name__ == "__main__":  # pragma: no cover - manual execution
     print("🚀 Starting Flask app with environment-based Neo4j configuration...")
+    
+    # Pre-initialize backend to catch errors early
+    try:
+        get_backend()
+        print("🎉 Backend pre-initialization successful")
+    except Exception as e:
+        print(f"❌ Backend pre-initialization failed: {e}")
+        print("Please check your configuration and dependencies")
+        exit(1)
+    
     app.run(host="0.0.0.0", port=8000, debug=False)

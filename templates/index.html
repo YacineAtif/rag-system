@@ -480,7 +480,7 @@
                 <span id="statusText">Loading...</span>
             </div>
             <div class="status-item">
-                <span>🌍</span>
+                <span>🌐</span>
                 <span id="environmentInfo">Loading...</span>
             </div>
         </div>
@@ -609,7 +609,7 @@
             return formatted;
         }
 
-        // Fixed typewriter implementation - NO AUTO SCROLL during typing
+        // Fixed typewriter implementation
         function typewriterEffect(element, finalText, speed = 80) {
             element.innerHTML = '';
             let currentText = '';
@@ -623,13 +623,12 @@
                     // Format the accumulated text and add cursor
                     element.innerHTML = formatResponse(currentText) + '<span class="typing-cursor">|</span>';
                     
-                    // REMOVED: Auto-scroll during typing - let user control scroll
-                    // document.getElementById('messagesArea').scrollTop = document.getElementById('messagesArea').scrollHeight;
-                    
                     setTimeout(typeNextChar, speed);
                 } else {
                     // Finished typing - remove cursor and show final formatted text
                     element.innerHTML = formatResponse(finalText);
+                    // Scroll to bottom after typing is complete
+                    document.getElementById('messagesArea').scrollTop = document.getElementById('messagesArea').scrollHeight;
                 }
             }
             
@@ -655,7 +654,8 @@
             resetTextarea();
             document.getElementById('sendButton').disabled = true;
 
-            showThinkingIndicator();
+            // Show thinking indicator immediately after user message
+            const thinkingMessageId = showThinkingIndicator();
 
             try {
                 console.log('🔍 DEBUG: About to make fetch request to /api/query');
@@ -680,7 +680,8 @@
                     const decoder = new TextDecoder();
                     let accumulatedText = '';
 
-                    // Create message container for streaming
+                    // Remove thinking indicator and create actual response container
+                    hideThinkingIndicator(thinkingMessageId);
                     const messageId = addMessage('', 'assistant', true);
                     const messageElement = document.getElementById(messageId);
                     const contentDiv = messageElement.querySelector('.message-content');
@@ -737,13 +738,16 @@
                         errorData = { error: errorText || 'Unknown error' };
                     }
 
+                    // Remove thinking indicator before showing error
+                    hideThinkingIndicator(thinkingMessageId);
                     addMessage(`Error: ${errorData.error || 'Unknown error'}`, 'assistant');
                 }
             } catch (error) {
                 console.error('🔍 DEBUG: Fetch error:', error);
+                // Remove thinking indicator before showing error
+                hideThinkingIndicator(thinkingMessageId);
                 addMessage(`Error: ${error.message}`, 'assistant');
             } finally {
-                hideThinkingIndicator();
                 document.getElementById('sendButton').disabled = false;
                 resetTextarea();
                 textarea.focus();
@@ -769,19 +773,15 @@
             messagesArea.appendChild(messageDiv);
             messagesArea.scrollTop = messagesArea.scrollHeight;
             
-            const messageId = 'msg-' + Date.now();
+            const messageId = 'msg-' + Date.now() + '-' + Math.random().toString(36).substr(2, 5);
             messageDiv.id = messageId;
             return messageId;
         }
 
         function showThinkingIndicator() {
-            // Create a message bubble with thinking indicator instead of using separate area
             const messageId = addMessage('', 'assistant', true);
             const messageElement = document.getElementById(messageId);
             const contentDiv = messageElement.querySelector('.message-content');
-            
-            // Store the message ID for later cleanup
-            window.thinkingMessageId = messageId;
             
             contentDiv.innerHTML = `
                 <div style="display: flex; align-items: center; gap: 0.75rem; color: #6e6e80; font-weight: 500; font-size: 0.95rem;">
@@ -793,16 +793,16 @@
                     </div>
                 </div>
             `;
+            
+            return messageId;
         }
 
-        function hideThinkingIndicator() {
-            // Remove the thinking message bubble if it exists
-            if (window.thinkingMessageId) {
-                const thinkingElement = document.getElementById(window.thinkingMessageId);
+        function hideThinkingIndicator(messageId) {
+            if (messageId) {
+                const thinkingElement = document.getElementById(messageId);
                 if (thinkingElement) {
                     thinkingElement.remove();
                 }
-                window.thinkingMessageId = null;
             }
         }
 
@@ -856,7 +856,7 @@
             textarea.focus();
         });
     
-            async function loadSystemStats() {
+        async function loadSystemStats() {
             try {
                 // Fetch stats from your API
                 const [statsResponse, healthResponse] = await Promise.all([
@@ -878,7 +878,7 @@
                     document.getElementById('predicateCount').textContent = `${predicateCount} predicates`;
 
                     // Update status and environment
-                    document.getElementById('statusText').textContent = `✅ Ready (${health.environment})`;
+                    document.getElementById('statusText').textContent = `✅ Ready (semantic)`;
                     document.getElementById('environmentInfo').textContent = `${health.environment} mode`;
 
                 } else {
@@ -902,8 +902,7 @@
         });
 
         // Optional: Refresh stats every 30 seconds
-        setInterval(loadSystemStats, 30000);    
-        
+        setInterval(loadSystemStats, 30000);
     </script>
 </body>
 </html>
