@@ -38,6 +38,17 @@ from weaviate_rag_pipeline_transformers import (
 )
 
 
+import warnings
+import os
+
+# Suppress all protobuf warnings
+warnings.filterwarnings('ignore', category=UserWarning, module='google.protobuf')
+warnings.filterwarnings('ignore', message='.*Protobuf gencode version.*')
+
+# Set environment variables
+os.environ['PROTOBUF_PYTHON_IMPLEMENTATION'] = 'python'
+os.environ['TF_CPP_MIN_LOG_LEVEL'] = '3'
+
 class I2ConnectOODDetector:
     """Enhanced OOD detection specifically for I2Connect domain"""
     
@@ -220,15 +231,26 @@ class RAGBackend:
     def __init__(self, config_path: str = "config.yaml", force_rebuild: bool = False):
         # Initialize OOD detector
         self.ood_detector = I2ConnectOODDetector()
-        
-        # Load configuration using the updated Config class
+
+        # Load configuration
         self.config = Config(config_path)
         print(f"🔧 RAGBackend using environment: {self.config.environment}")
-        
+
         # Set up logging using the raw YAML for setup_logging function compatibility
         with open(config_path, "r") as f:
             config_dict = yaml.safe_load(f)
         setup_logging(config_dict)
+
+        # Environment-aware initialization
+        if self.config.environment == "railway":
+            self._init_railway_mode()
+        else:
+            self._init_local_mode(force_rebuild)
+
+    
+    def _init_local_mode(self, force_rebuild: bool = False):
+        """Full local initialization - your existing logic"""
+        print("🏠 Local mode - full initialization with embedder warm-up")
 
         self._ensure_infrastructure()
 
@@ -237,7 +259,7 @@ class RAGBackend:
         print(f"🔗 Connecting to Weaviate at: {weaviate_url}")
 
         if not wait_for_weaviate(url=weaviate_url):
-            raise RuntimeError(f"Weaviate not responding at {weaviate_url}. Check configuration.")
+            raise RuntimeError(f"Weaviate not responding at {weaviate_url}")
 
         # Build Haystack components with environment-aware URLs
         self.document_store = WeaviateDocumentStore(url=weaviate_url)
@@ -252,16 +274,16 @@ class RAGBackend:
 
         # Initialize pipeline with the updated Config object
         self.pipeline = RAGPipeline(self.document_store, retriever, self.text_embedder)
-        
+
         # CRITICAL FIX: Make sure the pipeline uses our environment-aware config
         self.pipeline.graph_builder.config = self.config
-        
+
         # Update the global CONFIG to match our environment
         global CONFIG
         from weaviate_rag_pipeline_transformers import CONFIG as GLOBAL_CONFIG
         GLOBAL_CONFIG.environment = self.config.environment
         GLOBAL_CONFIG.neo4j = self.config.neo4j
-        
+
         print(f"🔗 Neo4j connection will use: {self._get_current_neo4j_uri()}")
 
         # Check processing mode
@@ -280,6 +302,45 @@ class RAGBackend:
             else:
                 self.pipeline.populate_knowledge_graph()
 
+    def _init_railway_mode(self):
+        """Railway-optimized initialization - no local embedder"""
+        print("🚀 Railway mode - lightweight initialization without local embedder")
+
+        self._ensure_infrastructure()
+
+        # Get environment-aware Weaviate URL
+        weaviate_url = self._get_current_weaviate_url()
+        print(f"🔗 Connecting to Weaviate at: {weaviate_url}")
+
+        # Quick Weaviate connection test
+        if not wait_for_weaviate(url=weaviate_url, max_retries=5):
+            raise RuntimeError(f"Weaviate not responding at {weaviate_url}")
+
+        # Initialize document store only
+        self.document_store = WeaviateDocumentStore(url=weaviate_url)
+
+        # NO LOCAL EMBEDDER for Railway
+        self.text_embedder = None
+        print("🌐 Using Railway Weaviate's built-in text2vec-huggingface (no local model)")
+
+        # Get Weaviate client for direct queries
+        self.weaviate_client = self.document_store._client
+
+        # Initialize graph builder only (lightweight)
+        from weaviate_rag_pipeline_transformers import Neo4jGraphBuilder
+        self.graph_builder = Neo4jGraphBuilder(self.config)
+        self.graph_builder.config = self.config
+
+        # Update global config
+        global CONFIG
+        from weaviate_rag_pipeline_transformers import CONFIG as GLOBAL_CONFIG
+        GLOBAL_CONFIG.environment = self.config.environment
+        GLOBAL_CONFIG.neo4j = self.config.neo4j
+
+        print(f"🔗 Neo4j connection will use: {self._get_current_neo4j_uri()}")
+        print("✅ Railway lightweight initialization complete")
+    
+    
     def _get_current_weaviate_url(self) -> str:
         """Get the Weaviate URL based on current environment."""
         env = self.config.environment
@@ -354,57 +415,7 @@ class RAGBackend:
         """Check if the query itself is about I2Connect domain topics"""
         query_lower = query.lower().strip()
         
-        # I2Connect domain keywords - more comprehensive list
-        domain_keywords = [
-            # Core project terms
-            'i2connect', 'evidence theory', 'dempster-shafer', 'belief function',
-            'mass function', 'plausibility',
-            
-            # Traffic safety
-            'traffic', 'safety', 'intersection', 'collision', 'driver', 'vehicle',
-            'autonomous', 'adas', 'monitoring', 'gaze', 'tracking',
-            
-            # Technology partners
-            'smart eye', 'viscando', 'scania', 'university', 'skövde',
-            
-            # Risk and assessment
-            'risk', 'assessment', 'hazard', 'safety concept', 'uncertainty',
-            'probability', 'sensor', 'fusion',
-            
-            # Research terms
-            'research', 'project', 'consortium', 'partner', 'organization',
-            
-            # Technical architecture terms (when in research context)
-            'architecture', 'system', 'data', 'framework', 'design',
-            'implementation', 'methodology', 'approach', 'technology'
-        ]
-        
-        # Check for direct keyword matches
-        if any(keyword in query_lower for keyword in domain_keywords):
-            return True
-        
-        # Check for question patterns about domain topics (more permissive)
-        domain_question_patterns = [
-            ('what is', ['evidence', 'risk', 'safety', 'dempster', 'belief', 'system', 'architecture', 'data']),
-            ('how does', ['evidence', 'theory', 'risk', 'safety', 'system', 'architecture', 'work']),
-            ('how is', ['risk', 'assessment', 'data', 'system']),
-            ('tell me about', ['i2connect', 'project', 'research', 'safety', 'system', 'architecture']),
-            ('who are', ['partners', 'consortium', 'organizations', 'contributors']),
-            ('what are', ['safety concepts', 'risks', 'technologies', 'components']),
-            ('describe', ['system', 'architecture', 'approach', 'methodology']),
-            ('explain', ['system', 'architecture', 'approach', 'theory'])
-        ]
-        
-        for pattern, terms in domain_question_patterns:
-            if pattern in query_lower:
-                if any(term in query_lower for term in terms):
-                    return True
-        
-        # If the query contains "i2connect" anywhere, it's probably domain-relevant
-        if 'i2connect' in query_lower or 'i2 connect' in query_lower:
-            return True
-        
-        # Common non-domain queries that should be clearly rejected
+        # FIRST: Check for clearly non-domain requests
         non_domain_indicators = [
             'weather', 'temperature', 'rain', 'sunny', 'cloudy', 'forecast',
             'cooking', 'recipe', 'food', 'restaurant', 'meal', 'kitchen', 'paella', 'pasta',
@@ -413,18 +424,61 @@ class RAGBackend:
             'politics', 'election', 'president', 'government',
             'shopping', 'price', 'buy', 'sell', 'market', 'store',
             'health', 'medicine', 'doctor', 'hospital', 'disease',
-            'travel', 'vacation', 'hotel', 'flight', 'tourism'
+            'travel', 'vacation', 'hotel', 'flight', 'tourism',
+            # Programming/generic tech requests
+            'sorting algorithm', 'algorithm', 'code', 'programming', 'python', 'javascript',
+            'function', 'class', 'variable', 'loop', 'array', 'list', 'database',
+            'sql', 'html', 'css', 'web development', 'api', 'json'
         ]
         
-        # Only reject if it's clearly about non-domain topics
+        # Early rejection for clearly non-domain queries
         if any(indicator in query_lower for indicator in non_domain_indicators):
-            # Double-check: reject unless it also contains core domain terms
-            core_domain_terms = ['i2connect', 'evidence theory', 'traffic', 'safety', 'risk']
-            if not any(term in query_lower for term in core_domain_terms):
-                return False
+            return False
         
-        # Default to ACCEPT for ambiguous queries - let context check handle it
-        return True
+        # Core I2Connect domain keywords (must contain at least one)
+        core_domain_keywords = [
+            'i2connect', 'evidence theory', 'dempster-shafer', 'belief function',
+            'traffic safety', 'intersection', 'collision', 'driver monitoring',
+            'smart eye', 'viscando', 'scania', 'gaze tracking',
+            'risk assessment', 'safety concept', 'uncertainty quantification'
+        ]
+        
+        # Check for direct core domain matches
+        if any(keyword in query_lower for keyword in core_domain_keywords):
+            return True
+        
+        # Extended domain terms (lower confidence, need more context)
+        extended_domain_keywords = [
+            'traffic', 'safety', 'driver', 'vehicle', 'autonomous', 'adas',
+            'monitoring', 'sensor', 'risk', 'assessment', 'university', 'skövde',
+            'research', 'project', 'consortium', 'partner'
+        ]
+        
+        # Check for extended terms + domain context
+        if any(keyword in query_lower for keyword in extended_domain_keywords):
+            # Must also have domain context indicators
+            domain_context = ['i2connect', 'project', 'research', 'safety', 'traffic']
+            if any(context in query_lower for context in domain_context):
+                return True
+        
+        # Check for domain-specific question patterns
+        domain_question_patterns = [
+            ('what is', ['evidence theory', 'dempster-shafer', 'risk assessment', 'safety concept']),
+            ('how does', ['evidence theory', 'risk assessment', 'driver monitoring', 'gaze tracking']),
+            ('tell me about', ['i2connect', 'smart eye', 'viscando', 'scania']),
+            ('who are', ['partners', 'consortium']),
+            ('describe', ['i2connect', 'safety concept', 'risk assessment'])
+        ]
+        
+        for pattern, terms in domain_question_patterns:
+            if pattern in query_lower:
+                if any(term in query_lower for term in terms):
+                    return True
+        
+        # Default to REJECT for ambiguous queries
+        return False
+
+    def ensure_weaviate_connected(self) -> bool:
         """Simple Weaviate connection check"""
         return True
 
@@ -521,16 +575,25 @@ Key I2Connect areas include: evidence theory, Dempster-Shafer methods, traffic s
         return result["answer"]
     
     def query(self, query: str, enable_enhanced_ood: bool = True) -> dict:
-        """Execute a query with enhanced OOD detection"""
+        """Environment-aware query processing"""
+
+        if self.config.environment == "railway":
+            return self._query_railway_optimized(query, enable_enhanced_ood)
+        else:
+            return self._query_local_full(query, enable_enhanced_ood)
+
+    
+    def _query_local_full(self, query: str, enable_enhanced_ood: bool = True) -> dict:
+        """Local environment - your existing query logic"""
 
         try:
-            print(f"🔍 Processing query: {query}")
+            print(f"🔍 Processing query (local): {query}")
 
             # EARLY OOD CHECK - before any retrieval
             if enable_enhanced_ood:
                 query_is_domain_relevant = self._is_query_domain_relevant(query)
                 print(f"🔍 Early Query Check - Relevant: {query_is_domain_relevant}")
-                
+
                 if not query_is_domain_relevant:
                     return {
                         "answer": "I can only help with I2Connect topics.",
@@ -576,7 +639,7 @@ Key I2Connect areas include: evidence theory, Dempster-Shafer methods, traffic s
             if context_parts:
                 if enable_enhanced_ood:
                     generation_result = self.generate_answer_with_enhanced_ood(query, context_parts)
-                    
+
                     return {
                         "answer": generation_result["answer"],
                         "is_ood": generation_result["is_ood"],
@@ -587,10 +650,10 @@ Key I2Connect areas include: evidence theory, Dempster-Shafer methods, traffic s
                         "context_sources": len(context_parts),
                         "environment": self.config.environment,
                         "neo4j_uri": self._get_current_neo4j_uri(),
-                        "weaviate_url": self._get_current_weaviate_url()
+                        "weaviate_url": self._get_current_weaviate_url(),
+                        "method": "local_embedder"
                     }
                 else:
-                    # Use legacy method for backward compatibility
                     answer = self.bypass_ood_detection(query, context_parts)
                     return {
                         "answer": answer,
@@ -598,20 +661,16 @@ Key I2Connect areas include: evidence theory, Dempster-Shafer methods, traffic s
                         "graph_results": len(graph_results),
                         "context_sources": len(context_parts),
                         "environment": self.config.environment,
-                        "neo4j_uri": self._get_current_neo4j_uri(),
-                        "weaviate_url": self._get_current_weaviate_url()
+                        "method": "local_embedder"
                     }
 
             # If no meaningful context found
             return {
                 "answer": "I found limited information about your query. Could you try rephrasing your question or asking about specific aspects of the I2Connect project?",
-                "is_ood": False,
                 "vector_results": len(vector_results),
                 "graph_results": len(graph_results),
                 "context_sources": 0,
-                "environment": self.config.environment,
-                "neo4j_uri": self._get_current_neo4j_uri(),
-                "weaviate_url": self._get_current_weaviate_url()
+                "environment": self.config.environment
             }
 
         except Exception as e:
@@ -619,11 +678,117 @@ Key I2Connect areas include: evidence theory, Dempster-Shafer methods, traffic s
             return {
                 "answer": f"I encountered an error while processing your query: {str(e)}",
                 "error": str(e),
-                "environment": self.config.environment,
-                "neo4j_uri": self._get_current_neo4j_uri(),
-                "weaviate_url": self._get_current_weaviate_url()
+                "environment": self.config.environment
             }
 
+    def _query_railway_optimized(self, query: str, enable_enhanced_ood: bool = True) -> dict:
+        """Railway environment - optimized without local embedder"""
+
+        try:
+            print(f"🔍 Processing query (Railway): {query}")
+
+            # Early OOD check (no embeddings needed)
+            if enable_enhanced_ood:
+                query_is_domain_relevant = self._is_query_domain_relevant(query)
+                print(f"🔍 Early Query Check - Relevant: {query_is_domain_relevant}")
+
+                if not query_is_domain_relevant:
+                    return {
+                        "answer": "I can only help with I2Connect topics.",
+                        "is_ood": True,
+                        "ood_diagnostics": {"reason": "query_not_domain_relevant"},
+                        "confidence": 0.0,
+                        "vector_results": 0,
+                        "graph_results": 0,
+                        "environment": self.config.environment,
+                        "method": "railway_neartext"
+                    }
+
+            # Use Weaviate's nearText for semantic search (no local embeddings)
+            print("🔍 Using Railway Weaviate nearText search...")
+
+            try:
+                collection = self.weaviate_client.collections.get("Default")
+                vector_results = collection.query.near_text(
+                    query=query,
+                    limit=10,
+                    return_metadata=['score']
+                )
+                print(f"📊 Vector search found {len(vector_results.objects)} documents")
+            except Exception as e:
+                print(f"⚠️ Weaviate nearText failed: {e}")
+                vector_results = type('MockResult', (), {'objects': []})()
+
+            # Graph search (no embeddings needed)
+            print("🔍 Attempting graph search...")
+            try:
+                graph_results = self.graph_builder.graph_search(query)
+                print(f"📊 Graph search found {len(graph_results)} results")
+            except Exception as e:
+                print(f"⚠️ Graph search failed: {e}")
+                graph_results = []
+
+            # Prepare context
+            context_parts = []
+
+            # Add vector context
+            for obj in vector_results.objects[:5]:
+                if hasattr(obj.properties, 'content') and obj.properties.content:
+                    context_parts.append(obj.properties.content)
+
+            # Add graph context
+            for result in graph_results[:3]:
+                context_parts.append(f"{result['source']} {result['relationship']} {result['target']}")
+
+            print(f"🔍 Combined context from {len(context_parts)} sources")
+
+            # Generate answer with enhanced OOD
+            if context_parts:
+                if enable_enhanced_ood:
+                    generation_result = self.generate_answer_with_enhanced_ood(query, context_parts)
+
+                    return {
+                        "answer": generation_result["answer"],
+                        "is_ood": generation_result["is_ood"],
+                        "ood_diagnostics": generation_result.get("ood_diagnostics", {}),
+                        "confidence": generation_result.get("confidence", 0.0),
+                        "vector_results": len(vector_results.objects),
+                        "graph_results": len(graph_results),
+                        "context_sources": len(context_parts),
+                        "environment": self.config.environment,
+                        "method": "railway_neartext"
+                    }
+                else:
+                    answer = self.bypass_ood_detection(query, context_parts)
+                    return {
+                        "answer": answer,
+                        "vector_results": len(vector_results.objects),
+                        "graph_results": len(graph_results),
+                        "context_sources": len(context_parts),
+                        "environment": self.config.environment,
+                        "method": "railway_neartext"
+                    }
+
+            # No context found
+            return {
+                "answer": "I found limited information about your query. Could you try rephrasing your question or asking about specific aspects of the I2Connect project?",
+                "is_ood": False,
+                "vector_results": len(vector_results.objects) if hasattr(vector_results, 'objects') else 0,
+                "graph_results": len(graph_results),
+                "context_sources": 0,
+                "environment": self.config.environment,
+                "method": "railway_neartext"
+            }
+
+        except Exception as e:
+            print(f"❌ Railway query processing error: {e}")
+            return {
+                "answer": f"I encountered an error while processing your query: {str(e)}",
+                "error": str(e),
+                "environment": self.config.environment,
+                "method": "railway_neartext"
+            }
+    
     def analyze_context_for_debug(self, context_sentences: List[str]) -> Dict:
         """Debug method to analyze context quality"""
         return self.ood_detector.analyze_context_quality(context_sentences)
@@ -633,16 +798,24 @@ Key I2Connect areas include: evidence theory, Dempster-Shafer methods, traffic s
         result = self.generate_answer_with_enhanced_ood(query, context_parts)
         return result["answer"]
         
-    def get_stats(self) -> dict:
+@property
+    def active_graph_builder(self):
+        """Get the active graph builder based on environment"""
+        if self.config.environment == "railway":
+            return self.graph_builder
+        else:
+            return self.pipeline.graph_builder                                          
+            
+   def get_stats(self) -> dict:
         """Get statistics from the knowledge graph."""
         try:
-            with self.pipeline.graph_builder.driver.session() as session:
+            with self.active_graph_builder.driver.session() as session:
                 entity_result = session.run("MATCH (n:Entity) RETURN count(n) as count")
                 entity_count = entity_result.single()["count"]
-                
+
                 rel_result = session.run("MATCH ()-[r]->() RETURN count(r) as count")
                 rel_count = rel_result.single()["count"]
-            
+
             return {
                 "entities": entity_count,
                 "relationships": rel_count,
