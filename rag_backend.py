@@ -578,12 +578,110 @@ Key I2Connect areas include: evidence theory, Dempster-Shafer methods, traffic s
 
     
     def _query_local_full(self, query: str, enable_enhanced_ood: bool = True) -> dict:
-        """Local environment - your existing query logic"""
+        """Local environment - full pipeline with local embedder"""
 
         try:
             print(f"🔍 Processing query (local): {query}")
 
             # EARLY OOD CHECK - before any retrieval
+            if enable_enhanced_ood:
+                query_is_domain_relevant = self._is_query_domain_relevant(query)
+                print(f"🔍 Early Query Check - Relevant: {query_is_domain_relevant}")
+
+                if not query_is_domain_relevant:
+                    return {
+                        "answer": "I can only help with I2Connect topics.",
+                        "is_ood": True,
+                        "ood_diagnostics": {"reason": "query_not_domain_relevant", "early_rejection": True},
+                        "confidence": 0.0,
+                        "vector_results": 0,
+                        "graph_results": 0,
+                        "context_sources": 0,
+                        "environment": self.config.environment,
+                        "neo4j_uri": self._get_current_neo4j_uri(),
+                        "weaviate_url": self._get_current_weaviate_url()
+                    }
+
+            # Only proceed with retrieval if query passes early check
+            print("🔍 Attempting vector search (local embedder)...")
+            query_embedding = self.pipeline.text_embedder.run(text=query)["embedding"]
+            vector_docs = self.pipeline.retriever.run(query_embedding=query_embedding)
+            vector_results = vector_docs.get("documents", [])
+
+            print(f"📊 Vector search found {len(vector_results)} documents")
+
+            # Try graph search
+            print("🔍 Attempting graph search...")
+            graph_results = self.pipeline.graph_builder.graph_search(query)
+            print(f"📊 Graph search found {len(graph_results)} results")
+
+            # Prepare context from both sources
+            context_parts = []
+
+            # Add vector context (prioritize relevant docs)
+            for doc in vector_results[:5]:
+                if len(doc.content.strip()) > 50:
+                    context_parts.append(doc.content)
+
+            # Add graph context
+            for result in graph_results[:3]:
+                context_parts.append(f"{result['source']} {result['relationship']} {result['target']}")
+
+            print(f"🔍 Combined context from {len(context_parts)} sources")
+
+            # Generate answer with enhanced OOD detection
+            if context_parts:
+                if enable_enhanced_ood:
+                    generation_result = self.generate_answer_with_enhanced_ood(query, context_parts)
+
+                    return {
+                        "answer": generation_result["answer"],
+                        "is_ood": generation_result["is_ood"],
+                        "ood_diagnostics": generation_result.get("ood_diagnostics", {}),
+                        "confidence": generation_result.get("confidence", 0.0),
+                        "vector_results": len(vector_results),
+                        "graph_results": len(graph_results),
+                        "context_sources": len(context_parts),
+                        "environment": self.config.environment,
+                        "neo4j_uri": self._get_current_neo4j_uri(),
+                        "weaviate_url": self._get_current_weaviate_url(),
+                        "method": "local_embedder"
+                    }
+                else:
+                    answer = self.bypass_ood_detection(query, context_parts)
+                    return {
+                        "answer": answer,
+                        "vector_results": len(vector_results),
+                        "graph_results": len(graph_results),
+                        "context_sources": len(context_parts),
+                        "environment": self.config.environment,
+                        "method": "local_embedder"
+                    }
+
+            # If no meaningful context found
+            return {
+                "answer": "I found limited information about your query. Could you try rephrasing your question or asking about specific aspects of the I2Connect project?",
+                "vector_results": len(vector_results),
+                "graph_results": len(graph_results),
+                "context_sources": 0,
+                "environment": self.config.environment
+            }
+
+        except Exception as e:
+            print(f"⌘ Query processing error: {e}")
+            return {
+                "answer": f"I encountered an error while processing your query: {str(e)}",
+                "error": str(e),
+                "environment": self.config.environment
+            }
+
+    def _query_railway_optimized(self, query: str, enable_enhanced_ood: bool = True) -> dict:
+        """Railway environment - optimized without local embedder"""
+
+        try:
+            print(f"🔍 Processing query (Railway): {query}")
+
+            # Early OOD check (no embeddings needed)
             if enable_enhanced_ood:
                 query_is_domain_relevant = self._is_query_domain_relevant(query)
                 print(f"🔍 Early Query Check - Relevant: {query_is_domain_relevant}")
@@ -738,101 +836,3 @@ Key I2Connect areas include: evidence theory, Dempster-Shafer methods, traffic s
 
 
 __all__ = ["RAGBackend"]
-                        "answer": "I can only help with I2Connect topics.",
-                        "is_ood": True,
-                        "ood_diagnostics": {"reason": "query_not_domain_relevant", "early_rejection": True},
-                        "confidence": 0.0,
-                        "vector_results": 0,
-                        "graph_results": 0,
-                        "context_sources": 0,
-                        "environment": self.config.environment,
-                        "neo4j_uri": self._get_current_neo4j_uri(),
-                        "weaviate_url": self._get_current_weaviate_url()
-                    }
-
-            # Only proceed with retrieval if query passes early check
-            print("🔍 Attempting vector search...")
-            query_embedding = self.pipeline.text_embedder.run(text=query)["embedding"]
-            vector_docs = self.pipeline.retriever.run(query_embedding=query_embedding)
-            vector_results = vector_docs.get("documents", [])
-
-            print(f"📊 Vector search found {len(vector_results)} documents")
-
-            # Try graph search
-            print("🔍 Attempting graph search...")
-            graph_results = self.pipeline.graph_builder.graph_search(query)
-            print(f"📊 Graph search found {len(graph_results)} results")
-
-            # Prepare context from both sources
-            context_parts = []
-
-            # Add vector context (prioritize relevant docs)
-            for doc in vector_results[:5]:
-                if len(doc.content.strip()) > 50:
-                    context_parts.append(doc.content)
-
-            # Add graph context
-            for result in graph_results[:3]:
-                context_parts.append(f"{result['source']} {result['relationship']} {result['target']}")
-
-            print(f"🔍 Combined context from {len(context_parts)} sources")
-
-            # Generate answer with enhanced OOD detection
-            if context_parts:
-                if enable_enhanced_ood:
-                    generation_result = self.generate_answer_with_enhanced_ood(query, context_parts)
-
-                    return {
-                        "answer": generation_result["answer"],
-                        "is_ood": generation_result["is_ood"],
-                        "ood_diagnostics": generation_result.get("ood_diagnostics", {}),
-                        "confidence": generation_result.get("confidence", 0.0),
-                        "vector_results": len(vector_results),
-                        "graph_results": len(graph_results),
-                        "context_sources": len(context_parts),
-                        "environment": self.config.environment,
-                        "neo4j_uri": self._get_current_neo4j_uri(),
-                        "weaviate_url": self._get_current_weaviate_url(),
-                        "method": "local_embedder"
-                    }
-                else:
-                    answer = self.bypass_ood_detection(query, context_parts)
-                    return {
-                        "answer": answer,
-                        "vector_results": len(vector_results),
-                        "graph_results": len(graph_results),
-                        "context_sources": len(context_parts),
-                        "environment": self.config.environment,
-                        "method": "local_embedder"
-                    }
-
-            # If no meaningful context found
-            return {
-                "answer": "I found limited information about your query. Could you try rephrasing your question or asking about specific aspects of the I2Connect project?",
-                "vector_results": len(vector_results),
-                "graph_results": len(graph_results),
-                "context_sources": 0,
-                "environment": self.config.environment
-            }
-
-        except Exception as e:
-            print(f"⌘ Query processing error: {e}")
-            return {
-                "answer": f"I encountered an error while processing your query: {str(e)}",
-                "error": str(e),
-                "environment": self.config.environment
-            }
-
-    def _query_railway_optimized(self, query: str, enable_enhanced_ood: bool = True) -> dict:
-        """Railway environment - optimized without local embedder"""
-
-        try:
-            print(f"🔍 Processing query (Railway): {query}")
-
-            # Early OOD check (no embeddings needed)
-            if enable_enhanced_ood:
-                query_is_domain_relevant = self._is_query_domain_relevant(query)
-                print(f"🔍 Early Query Check - Relevant: {query_is_domain_relevant}")
-
-                if not query_is_domain_relevant:
-                    return {
