@@ -38,17 +38,6 @@ from weaviate_rag_pipeline_transformers import (
 )
 
 
-import warnings
-import os
-
-# Suppress all protobuf warnings
-warnings.filterwarnings('ignore', category=UserWarning, module='google.protobuf')
-warnings.filterwarnings('ignore', message='.*Protobuf gencode version.*')
-
-# Set environment variables
-os.environ['PROTOBUF_PYTHON_IMPLEMENTATION'] = 'python'
-os.environ['TF_CPP_MIN_LOG_LEVEL'] = '3'
-
 class I2ConnectOODDetector:
     """Enhanced OOD detection specifically for I2Connect domain"""
     
@@ -365,7 +354,57 @@ class RAGBackend:
         """Check if the query itself is about I2Connect domain topics"""
         query_lower = query.lower().strip()
         
-        # FIRST: Check for clearly non-domain requests
+        # I2Connect domain keywords - more comprehensive list
+        domain_keywords = [
+            # Core project terms
+            'i2connect', 'evidence theory', 'dempster-shafer', 'belief function',
+            'mass function', 'plausibility',
+            
+            # Traffic safety
+            'traffic', 'safety', 'intersection', 'collision', 'driver', 'vehicle',
+            'autonomous', 'adas', 'monitoring', 'gaze', 'tracking',
+            
+            # Technology partners
+            'smart eye', 'viscando', 'scania', 'university', 'skövde',
+            
+            # Risk and assessment
+            'risk', 'assessment', 'hazard', 'safety concept', 'uncertainty',
+            'probability', 'sensor', 'fusion',
+            
+            # Research terms
+            'research', 'project', 'consortium', 'partner', 'organization',
+            
+            # Technical architecture terms (when in research context)
+            'architecture', 'system', 'data', 'framework', 'design',
+            'implementation', 'methodology', 'approach', 'technology'
+        ]
+        
+        # Check for direct keyword matches
+        if any(keyword in query_lower for keyword in domain_keywords):
+            return True
+        
+        # Check for question patterns about domain topics (more permissive)
+        domain_question_patterns = [
+            ('what is', ['evidence', 'risk', 'safety', 'dempster', 'belief', 'system', 'architecture', 'data']),
+            ('how does', ['evidence', 'theory', 'risk', 'safety', 'system', 'architecture', 'work']),
+            ('how is', ['risk', 'assessment', 'data', 'system']),
+            ('tell me about', ['i2connect', 'project', 'research', 'safety', 'system', 'architecture']),
+            ('who are', ['partners', 'consortium', 'organizations', 'contributors']),
+            ('what are', ['safety concepts', 'risks', 'technologies', 'components']),
+            ('describe', ['system', 'architecture', 'approach', 'methodology']),
+            ('explain', ['system', 'architecture', 'approach', 'theory'])
+        ]
+        
+        for pattern, terms in domain_question_patterns:
+            if pattern in query_lower:
+                if any(term in query_lower for term in terms):
+                    return True
+        
+        # If the query contains "i2connect" anywhere, it's probably domain-relevant
+        if 'i2connect' in query_lower or 'i2 connect' in query_lower:
+            return True
+        
+        # Common non-domain queries that should be clearly rejected
         non_domain_indicators = [
             'weather', 'temperature', 'rain', 'sunny', 'cloudy', 'forecast',
             'cooking', 'recipe', 'food', 'restaurant', 'meal', 'kitchen', 'paella', 'pasta',
@@ -374,59 +413,18 @@ class RAGBackend:
             'politics', 'election', 'president', 'government',
             'shopping', 'price', 'buy', 'sell', 'market', 'store',
             'health', 'medicine', 'doctor', 'hospital', 'disease',
-            'travel', 'vacation', 'hotel', 'flight', 'tourism',
-            # Programming/generic tech requests
-            'sorting algorithm', 'algorithm', 'code', 'programming', 'python', 'javascript',
-            'function', 'class', 'variable', 'loop', 'array', 'list', 'database',
-            'sql', 'html', 'css', 'web development', 'api', 'json'
+            'travel', 'vacation', 'hotel', 'flight', 'tourism'
         ]
         
-        # Early rejection for clearly non-domain queries
+        # Only reject if it's clearly about non-domain topics
         if any(indicator in query_lower for indicator in non_domain_indicators):
-            return False
+            # Double-check: reject unless it also contains core domain terms
+            core_domain_terms = ['i2connect', 'evidence theory', 'traffic', 'safety', 'risk']
+            if not any(term in query_lower for term in core_domain_terms):
+                return False
         
-        # Core I2Connect domain keywords (must contain at least one)
-        core_domain_keywords = [
-            'i2connect', 'evidence theory', 'dempster-shafer', 'belief function',
-            'traffic safety', 'intersection', 'collision', 'driver monitoring',
-            'smart eye', 'viscando', 'scania', 'gaze tracking',
-            'risk assessment', 'safety concept', 'uncertainty quantification'
-        ]
-        
-        # Check for direct core domain matches
-        if any(keyword in query_lower for keyword in core_domain_keywords):
-            return True
-        
-        # Extended domain terms (lower confidence, need more context)
-        extended_domain_keywords = [
-            'traffic', 'safety', 'driver', 'vehicle', 'autonomous', 'adas',
-            'monitoring', 'sensor', 'risk', 'assessment', 'university', 'skövde',
-            'research', 'project', 'consortium', 'partner'
-        ]
-        
-        # Check for extended terms + domain context
-        if any(keyword in query_lower for keyword in extended_domain_keywords):
-            # Must also have domain context indicators
-            domain_context = ['i2connect', 'project', 'research', 'safety', 'traffic']
-            if any(context in query_lower for context in domain_context):
-                return True
-        
-        # Check for domain-specific question patterns
-        domain_question_patterns = [
-            ('what is', ['evidence theory', 'dempster-shafer', 'risk assessment', 'safety concept']),
-            ('how does', ['evidence theory', 'risk assessment', 'driver monitoring', 'gaze tracking']),
-            ('tell me about', ['i2connect', 'smart eye', 'viscando', 'scania']),
-            ('who are', ['partners', 'consortium']),
-            ('describe', ['i2connect', 'safety concept', 'risk assessment'])
-        ]
-        
-        for pattern, terms in domain_question_patterns:
-            if pattern in query_lower:
-                if any(term in query_lower for term in terms):
-                    return True
-        
-        # Default to REJECT for ambiguous queries
-        return False
+        # Default to ACCEPT for ambiguous queries - let context check handle it
+        return True
         """Simple Weaviate connection check"""
         return True
 

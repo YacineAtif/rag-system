@@ -1,15 +1,205 @@
 # Configuration for the I2Connect RAG system
 
 # Which environment to use: "local" for all local services, "railway" for Railway-hosted services.
-environment: "railway"
 
-# Folder containing source documents to index
+
+environment: "railway"  # Change from "local" to "railway"
+
+
+environments:
+  local:
+    weaviate:
+      url: "http://localhost:8080"
+      index_name: "Default"
+    neo4j:
+      uri: "bolt://localhost:7687"
+      user: "neo4j"
+      password: "password"
+      database: "neo4j"
+
+  railway:
+    weaviate:
+      url: "https://weaviate-production-55d6.up.railway.app"
+      index_name: "Default"
+    neo4j:
+      uri: "bolt://turntable.proxy.rlwy.net:43560"
+      user: "neo4j"
+      password: "mg89wxdi38d1xytau4yd40d7telcxtqo"
+      database: "neo4j"
+
+
 documents_folder: "documents"
 
-# Chunking parameters for splitting documents
-chunk_size: 2000
-chunk_overlap: 200
+# Enhanced Chunking Configuration
+# Optimized for Evidence Theory + I2Connect + Traffic Safety documents
+chunking:
+  # Default chunking parameters (reduced from 2000 for better precision)
+  chunk_size: 800
+  chunk_overlap: 150
+  
+  # Content-aware chunking for different document types
+  content_specific:
+    # Mathematical content (Evidence Theory documents)
+    mathematical:
+      chunk_size: 600
+      chunk_overlap: 200
+      preserve_equations: true
+      respect_proof_boundaries: true
+      
+    # Project documents (I2Connect, FFI applications)
+    project:
+      chunk_size: 850
+      chunk_overlap: 120
+      preserve_work_packages: true
+      respect_section_structure: true
+      
+    # Technical systems (ADAS, safety systems)
+    technical:
+      chunk_size: 900
+      chunk_overlap: 150
+      preserve_system_descriptions: true
+      maintain_component_relationships: true
+  
+  
+  # ODD  
+  ood_detection:
+  enabled: true
+  similarity_threshold: 0.05      # Lowered from default 0.15
+  graph_connectivity_threshold: 0.05  # Lowered from default 0.1
+  context_quality_threshold: 0.3     # Lowered from default 0.7
+  generation_confidence_threshold: 0.3  # Lowered from default 0.8
+  
+  keywords:
+    tier1: ["I2Connect", "risk", "safety", "concept"]
+    tier2: ["traffic", "system", "evidence"]
+    tier3: ["theory", "analysis"]
+  
+  quality_gates:
+    min_passage_length: 20
+    max_passage_length: 1000
+    min_context_overlap: 0.1
+  
+  abstention:
+    enable_abstention: false  # Temporarily disable
+    confidence_threshold: 0.1
+  
+  response_verification:
+    enable_verification: false  # Temporarily disable
+    min_confidence: 0.1
+  
+  # Section detection patterns for better chunk boundaries
+  section_patterns:
+    # High priority patterns - preserve these sections intact
+    high_priority:
+      - "(?i)(theorem|definition|proposition|proof|example)\\s*\\d*[.:]?"
+      - "(?i)(wp\\s*\\d+|work package \\d+|task \\d+\\.\\d+)"
+      - "(?i)(safety concept|concept \\d+|safety concept \\d+)"
+      - "(?i)(use case|scenario|requirement)"
+    
+    # Medium priority patterns - try to chunk at these boundaries
+    medium_priority:
+      - "(?i)(belief function|plausibility|bpa|evidence theory)"
+      - "(?i)(deliverable|milestone|demonstration|evaluation)"
+      - "(?i)(adas|driver monitoring|v2x|hmi|risk assessment)"
+      - "(?i)(concept|safety|traffic safety|intersection)"
+  
+  # Document type detection for automatic chunking strategy selection
+  document_classification:
+    evidence_theory_indicators:
+      - "Dempster-Shafer"
+      - "Evidence Theory"
+      - "Belief Functions"
+      - "Basic Probability Assignment"
+      - "mathematical framework"
+    
+    project_indicators:
+      - "I2Connect"
+      - "Work Package"
+      - "FFI"
+      - "deliverable"
+      - "milestone"
+    
+    safety_indicators:
+      - "ADAS"
+      - "traffic safety"
+      - "collision"
+      - "driver monitoring"
+      - "risk assessment"
 
+# Enhanced chunk processing patterns
+chunk_processing:
+  section_patterns:
+    # Patterns to detect major sections
+    - "^#{1,6}\\s+(.*)$"                    # Markdown headers
+    - "^\\d+\\.\\s+(.*?)(?:$|\\n)"          # Numbered sections
+    - "^###?\\s*(\\d+\\.\\d+\\s+.*?)$"      # Subsections
+    
+  # Domain-specific content detection patterns (configurable)
+  content_boost_patterns:
+    high_priority:
+      - "(?i)(concept\\s+\\d+)"
+      - "(?i)(safety\\s+concept)"
+      - "(?i)(comparative\\s+summary|comparative\\s+analysis)"
+    medium_priority:
+      - "(?i)(theorem|definition|proposition|proof)"
+      - "(?i)(work\\s+package|deliverable|milestone)"
+      - "(?i)(risk\\s+assessment|driver\\s+monitoring)"
+    
+  # Configurable content type markers
+  content_markers:
+    comparative_content: ["comparative", "comparison", "vs", "versus", "table", "feature"]
+    technical_content: ["system", "module", "component", "architecture", "implementation"]
+    conceptual_content: ["concept", "theory", "framework", "methodology", "approach"]
+
+# Metadata extraction for enhanced retrieval
+metadata_extraction:
+  # Key entities to extract and boost in queries
+  entities:
+    organizations: ["University of Skövde", "Scania", "Smart Eye", "Viscando", "TRATON"]
+    technologies: ["Evidence Theory", "ADAS", "V2X", "Driver Monitoring", "HMI"]
+    concepts: ["Risk Assessment", "Belief Functions", "Safety Confidence", "Data Fusion"]
+  
+  # Boost factors for different query types (domain-configurable)
+  query_boost_factors:
+    high_priority_queries: 3.2    # For critical domain concepts
+    evidence_theory_queries: 3.0
+    project_implementation_queries: 2.8
+    safety_system_queries: 2.7
+    partnership_queries: 2.4
+
+# Section priorities for query routing
+section_priorities:
+  queries:
+    # High priority domain concepts (configurable per domain)
+    high_priority_queries:
+      keywords: ["concept 1", "concept 2", "safety concept", "comparative"]
+      priority_sections: ["safety concepts", "concept 1", "concept 2", "comparative summary"]
+      boost_factor: 3.2
+    
+    evidence_theory_queries:
+      keywords: ["evidence theory", "dempster-shafer", "belief functions", "bpa", "plausibility"]
+      priority_sections: ["evidence theory", "risk assessment", "methodology"]
+      boost_factor: 3.0
+      
+    project_implementation_queries:
+      keywords: ["i2connect", "work package", "deliverable", "milestone", "ffi"]
+      priority_sections: ["project overview", "milestones", "collaborators"]
+      boost_factor: 2.8
+      
+    safety_system_queries:
+      keywords: ["adas", "traffic safety", "collision", "driver monitoring", "hmi"]
+      priority_sections: ["system architecture", "sensor", "risk assessment"]
+      boost_factor: 2.7
+      
+    partnership_queries:
+      keywords: ["scania", "smart eye", "viscando", "university", "consortium"]
+      priority_sections: ["collaborators", "project partners"]
+      boost_factor: 2.4
+
+# Retrieval configuration
+retrieval:
+  section_name_boost: 1.5
+  
 # Development flag; set to false in production
 development: true
 
@@ -17,6 +207,14 @@ claude:
   model_name: "claude-3-5-haiku-20241022"
   max_tokens: 1000
   temperature: 0.1
+
+# Prompting configuration
+prompting:
+  context_instructions:
+    safety_concept: "Focus on safety concepts, their implementation details, technical specifications, and comparative features. Highlight differences between concepts and their deployment timelines."
+    evidence_theory: "Explain mathematical frameworks, belief functions, and uncertainty reasoning. Include technical details about Dempster-Shafer theory and BPA calculations."
+    project: "Provide information about project structure, work packages, deliverables, milestones, and consortium details."
+    technical: "Focus on system architecture, technical components, sensor integration, and implementation details."
 
 # Environment-specific settings
 environments:

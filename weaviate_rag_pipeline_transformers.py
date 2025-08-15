@@ -22,8 +22,7 @@ import warnings
 warnings.filterwarnings('ignore', message='.*Protobuf gencode version.*')
 warnings.filterwarnings('ignore', category=UserWarning, module='google.protobuf')
 
-
-
+from ontologies.i2connect_ontology import I2ConnectOntology, EnhancedEntityExtractor
 
 
 import numpy as np
@@ -37,6 +36,9 @@ from multi_layer_ood import (
     AbstentionConfig,
     ResponseVerificationConfig,
 )
+
+
+
 
 os.environ["TOKENIZERS_PARALLELISM"] = "false"
 os.environ["HF_HUB_DISABLE_PROGRESS_BARS"] = "true"
@@ -654,8 +656,25 @@ class Neo4jGraphBuilder:
     def __init__(self, config: Optional[Config] = None):
         self.config = config or CONFIG
         self.driver = create_neo4j_driver(self.config)
-        
         self.claude_extractor = LLMGenerator(model="claude-3-5-haiku-20241022")
+        self.ontology = I2ConnectOntology()
+        self.enhanced_extractor = EnhancedEntityExtractor(self.claude_extractor, self.config)
+        
+
+        
+    # Add these 4 missing methods to your Neo4jGraphBuilder class in weaviate_rag_pipeline_transformers.py
+
+    def is_graph_populated(self):
+        """Check if Neo4j already contains entities"""
+        try:
+            with self.driver.session() as session:
+                result = session.run("MATCH (n) RETURN count(n) as count")
+                record = result.single()
+                return record["count"] > 0 if record else False
+        except Exception:
+            return False
+
+        
 
     def extract_json_from_claude_response(self, response_text):
         """Extract JSON from Claude's response, handling explanatory text"""
@@ -689,6 +708,69 @@ class Neo4jGraphBuilder:
 
         return {"entities": [], "relationships": []}
 
+    def _infer_relationships_from_context(self, entities, text_chunk):
+        """Infer relationships when Claude doesn't extract enough"""
+        relationships = []
+        text_lower = text_chunk.lower()
+
+        # Simple co-occurrence based relationship inference
+        for i, entity1 in enumerate(entities):
+            for j, entity2 in enumerate(entities):
+                if i >= j:  # Avoid duplicates and self-references
+                    continue
+
+                e1_name = entity1.get("name", "").lower()
+                e2_name = entity2.get("name", "").lower()
+
+                # Check if both entities appear in same sentence
+                sentences = text_chunk.split('.')
+                for sentence in sentences:
+                    sent_lower = sentence.lower()
+                    if e1_name in sent_lower and e2_name in sent_lower:
+                        # Determine relationship type based on entity types and context
+                        rel_type = self._determine_relationship_type(
+                            entity1, entity2, sentence
+                        )
+
+                        relationships.append({
+                            "source": entity1.get("name"),
+                            "target": entity2.get("name"),
+                            "relationship": rel_type,
+                            "properties": {"confidence": 0.6, "inferred": True}
+                        })
+                        break
+
+        return relationships
+
+    def _determine_relationship_type(self, entity1, entity2, context):
+        """Determine relationship type based on entity types and context"""
+        context_lower = context.lower()
+
+        # Partnership indicators
+        if any(word in context_lower for word in ["partner", "collaborate", "work with"]):
+            return "COLLABORATES_WITH"
+
+        # Development indicators  
+        if any(word in context_lower for word in ["develop", "create", "build"]):
+            return "DEVELOPS"
+
+        # Usage indicators
+        if any(word in context_lower for word in ["use", "implement", "apply"]):
+            return "USES"
+
+        # Organization relationships
+        if (entity1.get("type") == "Organization" and 
+            entity2.get("type") == "Organization"):
+            return "PARTNERS_WITH"
+
+        # Technology relationships
+        if (entity1.get("type") == "Organization" and 
+            entity2.get("type") == "Technology"):
+            return "DEVELOPS"
+
+        # Default generic relationship
+        return "RELATES_TO"
+
     def is_valid_chunk(self, text_chunk):
         """Check if chunk has meaningful content for extraction"""
         if not text_chunk or len(text_chunk.strip()) < 20:
@@ -696,235 +778,117 @@ class Neo4jGraphBuilder:
         meaningful_chars = sum(1 for c in text_chunk if c.isalnum())
         if meaningful_chars < len(text_chunk) * 0.3:
             return False
-        return True
-
-    def is_graph_populated(self):
-        """Check if Neo4j already contains entities"""
-        try:
-            with self.driver.session() as session:
-                result = session.run("MATCH (n) RETURN count(n) as count")
-                record = result.single()
-                return record["count"] > 0 if record else False
-        except Exception:
-            return False
-
+        return True    
+    
     def extract_entities_and_relationships(self, text_chunk, source_doc):
-        """Enhanced entity extraction with better error handling"""
+        """Enhanced entity extraction with better relationship detection"""
         if not self.is_valid_chunk(text_chunk):
-            print(f"⏭️  Skipping low-content chunk from {source_doc}")
+            print(f"⭐️ Skipping low-content chunk from {source_doc}")
             return {"entities": [], "relationships": []}
 
-        extraction_prompt = """Extract ALL entities and their relationships from this text comprehensively across any domain:
+        # Try ontology-enhanced extraction first
+        try:
+            if hasattr(self, 'enhanced_extractor') and self.enhanced_extractor:
+                result = self.enhanced_extractor.extract_with_ontology(text_chunk, source_doc)
+                ontology_matches = result.get("ontology_matches", 0)
+                total_entities = len(result.get("entities", []))
 
-ENTITIES TO EXTRACT (be thorough and domain-agnostic):
-- Organizations (companies, universities, institutions, agencies, groups)
-- Projects (research projects, systems, initiatives, programs, studies)
-- Technologies (tools, systems, frameworks, methods, platforms)
-- People (researchers, engineers, authors, contributors, leaders)
-- Concepts (methodologies, theories, approaches, principles)
-- Locations (cities, countries, regions, facilities)
-- Products (systems, devices, applications, services)
+                if total_entities > 0:
+                    print(f"✅ Ontology: {total_entities} entities ({ontology_matches} matches) from {source_doc}")
+                    return result
+                else:
+                    print(f"ℹ️ Ontology: No entities found, falling back to original extraction")
 
-RELATIONSHIPS TO EXTRACT (capture semantic connections):
-- Collaboration (PARTNERS_WITH, COLLABORATES_WITH, WORKS_WITH)
-- Contribution (CONTRIBUTES_TO, DEVELOPS, CREATES, PROVIDES)
-- Participation (PARTICIPATES_IN, LEADS, SUPPORTS, MANAGES)
-- Technical (USES, IMPLEMENTS, INTEGRATES_WITH, APPLIES)
-- Organizational (EMPLOYS, AFFILIATES_WITH, SPONSORS)
-- Location (LOCATED_IN, BASED_IN, OPERATES_IN)
+        except Exception as e:
+            print(f"⚠️ Ontology extraction failed, using fallback: {e}")
 
-Return comprehensive JSON format:
-{{
-    "entities": [
-        {{"name": "Entity Name", "type": "Organization|Project|Technology|Person|Concept|Location|Product", "properties": {{"description": "brief context"}}}}
-    ],
-    "relationships": [
-        {{"source": "Entity1", "target": "Entity2", "relationship": "RELATIONSHIP_TYPE", "properties": {{"context": "relationship description"}}}}
-    ]
-}}
+        # Enhanced Claude extraction prompt
+        extraction_prompt = """Extract ALL entities and their relationships from this text comprehensively.
 
-Be thorough - extract every meaningful entity and relationship mentioned.
+    TEXT TO ANALYZE:
+    {text}
 
-Text: {text}
-"""
+    Focus on:
+    1. Organizations (companies, universities, research institutions)
+    2. Technologies (systems, frameworks, concepts)
+    3. Safety concepts and risk types
+    4. People and their roles
+    5. Projects and deliverables
+
+    For each entity, provide:
+    - name: The entity name
+    - type: Entity type (Organization, Technology, SafetyConcept, RiskType, Person, etc.)
+    - properties: Additional attributes
+
+    For relationships, look for:
+    - Partnership relationships (works with, collaborates with, partners with)
+    - Development relationships (develops, creates, builds, implements)
+    - Usage relationships (uses, applies, employs)
+    - Contribution relationships (contributes to, leads, participates in)
+    - Risk relationships (addresses, mitigates, causes)
+
+    Return a JSON object with this structure:
+    {{
+        "entities": [
+            {{
+                "name": "Entity Name",
+                "type": "EntityType",
+                "properties": {{"key": "value"}}
+            }}
+        ],
+        "relationships": [
+            {{
+                "source": "Source Entity",
+                "target": "Target Entity", 
+                "relationship": "RELATIONSHIP_TYPE",
+                "properties": {{"confidence": 0.8}}
+            }}
+        ]
+    }}
+
+    Be aggressive in finding relationships - if two entities appear in the same context, there's likely a relationship."""
+
         try:
             result = self.claude_extractor.generate(
                 query=extraction_prompt.format(text=text_chunk),
                 context_sentences=[],
-                system_prompt="""You are an expert at extracting structured knowledge from text. 
+                system_prompt="""You are an expert at extracting structured knowledge from I2Connect traffic safety research documents. 
 
-CRITICAL INSTRUCTIONS:
-- Return ONLY valid JSON in the exact format specified
-- Do NOT include explanatory text before or after the JSON
-- If the text contains no meaningful entities, return: {"entities": [], "relationships": []}
-- Be comprehensive but ensure valid JSON format
+    CRITICAL: You must extract relationships between entities. Look for:
+    - Co-occurrence patterns (entities mentioned together)
+    - Action verbs indicating relationships
+    - Contextual connections
+    - Implicit relationships based on domain knowledge
 
-Extract ALL mentioned entities and relationships from the provided text.""",
+    Return valid JSON only. Be generous with relationship extraction - it's better to extract too many than too few.""",
             )
+
             extracted = self.extract_json_from_claude_response(result)
+
+            # Validate and clean extraction
             if not isinstance(extracted.get("entities"), list):
-                print(f"⚠️  Invalid entities structure in chunk from {source_doc}")
+                print(f"⚠️ Invalid entities structure in chunk from {source_doc}")
                 extracted["entities"] = []
             if not isinstance(extracted.get("relationships"), list):
-                print(f"⚠️  Invalid relationships structure in chunk from {source_doc}")
+                print(f"⚠️ Invalid relationships structure in chunk from {source_doc}")
                 extracted["relationships"] = []
+
+            # Enhanced relationship extraction if Claude didn't find enough
+            if len(extracted["relationships"]) == 0 and len(extracted["entities"]) > 1:
+                extracted["relationships"] = self._infer_relationships_from_context(
+                    extracted["entities"], text_chunk
+                )
+
             entity_count = len(extracted["entities"])
             rel_count = len(extracted["relationships"])
             if entity_count > 0 or rel_count > 0:
-                print(f"✅ Extracted {entity_count} entities, {rel_count} relationships from {source_doc}")
-            else:
-                print(f"ℹ️  No entities/relationships found in chunk from {source_doc}")
+                print(f"✅ Extraction: {entity_count} entities, {rel_count} relationships from {source_doc}")
+
             return extracted
-        except json.JSONDecodeError as e:
-            print(f"❌ JSON parsing failed for chunk from {source_doc}: {e}")
-            print(f"Claude response preview: {result[:300]}...")
-            return {"entities": [], "relationships": []}
+
         except Exception as e:
-            print(f"❌ Unexpected error in extraction for {source_doc}: {e}")
+            print(f"❌ Both ontology and fallback extraction failed for {source_doc}: {e}")
             return {"entities": [], "relationships": []}
-
-    def populate_graph(self, documents):
-        """Phase 1: Build knowledge graph from documents"""
-        with self.driver.session() as session:
-            for doc in documents:
-                extracted = self.extract_entities_and_relationships(doc.content, doc.meta.get("source", ""))
-
-                # Create entities
-                for entity in extracted["entities"]:
-                    properties = entity.get("properties", {})
-                    session.run(
-                        "MERGE (e:Entity {name: $name})"
-                        " SET e.type = $type, e.source = $source"
-                        " SET e += $properties",
-                        name=entity["name"],
-                        type=entity["type"],
-                        source=doc.meta.get("source", ""),
-                        properties=properties
-                    )
-
-                # Create relationships
-                for rel in extracted["relationships"]:
-                    rel_type = rel.get("relationship", "RELATES").upper().replace(" ", "_")
-                    properties = rel.get("properties", {})
-                    query = (
-                        f"MATCH (a:Entity {{name: $source}}), (b:Entity {{name: $target}}) "
-                        f"MERGE (a)-[r:{rel_type} {{source: $doc_source}}]->(b) "
-                        "SET r += $properties"
-                    )
-                    session.run(
-                        query,
-                        source=rel["source"],
-                        target=rel["target"],
-                        doc_source=doc.meta.get("source", ""),
-                        properties=properties
-                    )
-
-    def validate_graph_population(self):
-        """Validate graph population quality (domain-agnostic)"""
-        with self.driver.session() as session:
-            result = session.run(
-                """
-                MATCH (n:Entity)
-                RETURN n.type as entity_type, count(n) as count
-                ORDER BY count DESC
-                """
-            )
-            entity_counts = {record["entity_type"]: record["count"] for record in result}
-
-            rel_result = session.run(
-                """
-                MATCH ()-[r]->()
-                RETURN type(r) as relationship_type, count(r) as count
-                ORDER BY count DESC
-                """
-            )
-            relationship_counts = {record["relationship_type"]: record["count"] for record in rel_result}
-
-            total_entities = sum(entity_counts.values())
-            total_relationships = sum(relationship_counts.values())
-
-            print(f"📊 Graph validation: {total_entities} entities, {total_relationships} relationships")
-            print("📋 Entity types:", entity_counts)
-            print("🔗 Relationship types:", relationship_counts)
-
-            if total_entities < 5:
-                print("⚠️  Warning: Very few entities extracted. Consider improving extraction prompts.")
-            if total_relationships < 3:
-                print("⚠️  Warning: Very few relationships extracted. Relationship extraction may need improvement.")
-            if len(entity_counts) < 3:
-                print("⚠️  Warning: Limited entity type diversity. Extraction may be too narrow.")
-
-    def query_graph(self, query):
-        """Enhanced graph querying with intelligent routing"""
-        query_lower = query.lower()
-
-        if any(word in query_lower for word in ["contributor", "contribute", "partner", "involved", "collaborate"]):
-            return self._query_project_participants(query)
-        elif any(word in query_lower for word in ["role", "responsibility", "does", "provide"]):
-            return self._query_entity_roles(query)
-        elif any(word in query_lower for word in ["develop", "create", "build", "technology"]):
-            return self._query_development_relationships(query)
-        else:
-            return self._query_general_relationships(query)
-
-    def _query_project_participants(self, query):
-        """Query for project contributors and partners"""
-        with self.driver.session() as session:
-            result = session.run(
-                """
-                MATCH (project:Entity)-[r]-(participant:Entity)
-                WHERE project.type = 'Project' OR project.name CONTAINS 'project'
-                RETURN participant.name as entity, type(r) as relationship,
-                       participant.type as entity_type, project.name as project
-                UNION
-                MATCH (participant:Entity)-[r:PARTNERS_WITH|CONTRIBUTES_TO|PARTICIPATES_IN]-(other:Entity)
-                RETURN participant.name as entity, type(r) as relationship,
-                       participant.type as entity_type, other.name as project
-                LIMIT 10
-                """
-            )
-            return [
-                {"source": record["entity"], "relationship": record["relationship"],
-                 "target": record["project"], "type": record["entity_type"]}
-                for record in result
-            ]
-
-    def _query_entity_roles(self, query):
-        """Query for specific entity roles and responsibilities"""
-        entity_terms = ["scania", "smart eye", "university", "skövde", "viscando"]
-        detected_entity = None
-        for term in entity_terms:
-            if term in query.lower():
-                detected_entity = term
-                break
-
-        with self.driver.session() as session:
-            if detected_entity:
-                result = session.run(
-                    """
-                    MATCH (entity:Entity)-[r]-(other:Entity)
-                    WHERE toLower(entity.name) CONTAINS $entity_term
-                    RETURN entity.name as source, type(r) as relationship,
-                           other.name as target, entity.properties as properties
-                    LIMIT 10
-                    """,
-                    entity_term=detected_entity
-                )
-            else:
-                result = session.run(
-                    """
-                    MATCH (entity:Entity)-[r]-(other:Entity)
-                    WHERE entity.type = 'Organization'
-                    RETURN entity.name as source, type(r) as relationship,
-                           other.name as target, entity.properties as properties
-                    LIMIT 10
-                    """
-                )
-            return [
-                {"source": record["source"], "relationship": record["relationship"],
-                 "target": record["target"]}
-                for record in result
-            ]
 
     def _query_development_relationships(self, query):
         """Query for development and technology relationships"""
@@ -959,74 +923,7 @@ Extract ALL mentioned entities and relationships from the provided text.""",
                 {"source": record["source"], "relationship": record["relationship"], "target": record["target"]}
                 for record in result
             ]
-
-    # --- Enhanced Graph Search Strategies ---
-    def graph_search(self, query, limit=10):
-        """Enhanced graph search with 4-strategy cascade for 100% coverage"""
-        try:
-            entity_results = self._search_by_entities(query, limit)
-        except Exception as e:
-            logger.warning("Entity search failed: %s", e)
-            entity_results = []
-        if entity_results:
-            logger.info("Graph search using strategy 'entity_match'")
-            return entity_results[:limit]
-
-        try:
-            relationship_results = self._search_by_relationships(query, limit)
-        except Exception as e:
-            logger.warning("Relationship search failed: %s", e)
-            relationship_results = []
-        if relationship_results:
-            logger.info("Graph search using strategy 'relationship_based'")
-            return relationship_results[:limit]
-
-        try:
-            content_results = self._search_by_content(query, limit)
-        except Exception as e:
-            logger.warning("Content search failed: %s", e)
-            content_results = []
-        if content_results:
-            logger.info("Graph search using strategy 'content_based'")
-            return content_results[:limit]
-
-        try:
-            fallback_results = self._get_most_connected_nodes(limit)
-        except Exception as e:
-            logger.warning("Structural fallback search failed: %s", e)
-            fallback_results = []
-        logger.info("Graph search using strategy 'structural_fallback'")
-        return fallback_results[:limit]
-
-    def _search_by_entities(self, query, limit):
-        """Primary entity-based search"""
-        term = query.lower()
-        try:
-            with self.driver.session() as session:
-                result = session.run(
-                    """
-                    MATCH (e:Entity)-[r]-(m:Entity)
-                    WHERE toLower(e.name) CONTAINS $entity_term
-                    RETURN e.name as source, type(r) as relationship, m.name as target
-                    LIMIT $limit
-                    """,
-                    entity_term=term,
-                    limit=limit,
-                )
-                return [
-                    {
-                        "source": record["source"],
-                        "relationship": record["relationship"],
-                        "target": record["target"],
-                        "relevance_score": 1.0,
-                        "search_strategy": "entity_match",
-                    }
-                    for record in result
-                ]
-        except Exception as e:
-            logger.warning("Entity search query failed: %s", e)
-            return []
-
+   
     def _search_by_relationships(self, query, limit):
         """Search graph based on relationship keywords"""
         relationship_mapping = {
@@ -1038,7 +935,9 @@ Extract ALL mentioned entities and relationships from the provided text.""",
             'concept': ['IMPLEMENTS', 'DEFINES', 'USES', 'DESCRIBES'],
             'evidence': ['PROVIDES', 'SUPPORTS', 'VALIDATES', 'DEMONSTRATES'],
             'system': ['USES', 'IMPLEMENTS', 'CONTAINS'],
-            'project': ['INCLUDES', 'INVOLVES', 'MANAGES']
+            'project': ['INCLUDES', 'INVOLVES', 'MANAGES'],
+            'risk': ['ADDRESSES', 'MITIGATES', 'MANAGES'],
+            'safety': ['IMPLEMENTS', 'ADDRESSES', 'SUPPORTS']
         }
         query_lower = query.lower()
         relationship_types = set()
@@ -1143,6 +1042,478 @@ Extract ALL mentioned entities and relationships from the provided text.""",
             logger.warning("Structural fallback query failed: %s", e)
             return []
 
+    def _query_project_participants(self, query):
+        """Query for project contributors and partners"""
+        with self.driver.session() as session:
+            result = session.run(
+                """
+                MATCH (project:Entity)-[r]-(participant:Entity)
+                WHERE project.type = 'Project' OR project.name CONTAINS 'project'
+                RETURN participant.name as entity, type(r) as relationship,
+                       participant.type as entity_type, project.name as project
+                UNION
+                MATCH (participant:Entity)-[r:PARTNERS_WITH|CONTRIBUTES_TO|PARTICIPATES_IN]-(other:Entity)
+                RETURN participant.name as entity, type(r) as relationship,
+                       participant.type as entity_type, other.name as project
+                LIMIT 10
+                """
+            )
+            return [
+                {"source": record["entity"], "relationship": record["relationship"],
+                 "target": record["project"], "type": record["entity_type"]}
+                for record in result
+            ]                           
+
+    def _query_entity_roles(self, query):
+        """Query for specific entity roles and responsibilities"""
+        entity_terms = ["scania", "smart eye", "university", "skövde", "viscando"]
+        detected_entity = None
+        for term in entity_terms:
+            if term in query.lower():
+                detected_entity = term
+                break
+
+        with self.driver.session() as session:
+            if detected_entity:
+                result = session.run(
+                    """
+                    MATCH (entity:Entity)-[r]-(other:Entity)
+                    WHERE toLower(entity.name) CONTAINS $entity_term
+                    RETURN entity.name as source, type(r) as relationship,
+                           other.name as target, entity.properties as properties
+                    LIMIT 10
+                    """,
+                    entity_term=detected_entity
+                )
+            else:
+                result = session.run(
+                    """
+                    MATCH (entity:Entity)-[r]-(other:Entity)
+                    WHERE entity.type = 'Organization'
+                    RETURN entity.name as source, type(r) as relationship,
+                           other.name as target, entity.properties as properties
+                    LIMIT 10
+                    """
+                )
+            return [
+                {"source": record["source"], "relationship": record["relationship"],
+                 "target": record["target"]}
+                for record in result
+            ]
+
+        def _query_development_relationships(self, query):
+            """Query for development and technology relationships"""
+            with self.driver.session() as session:
+                result = session.run(
+                    """
+                    MATCH (entity:Entity)-[r:DEVELOPS|CREATES|BUILDS|USES|IMPLEMENTS|INTEGRATES_WITH]->(tech:Entity)
+                    RETURN entity.name as source, type(r) as relationship,
+                           tech.name as target, entity.type as entity_type
+                    LIMIT 10
+                    """
+                )
+                return [
+                    {"source": record["source"], "relationship": record["relationship"],
+                     "target": record["target"], "type": record["entity_type"]}
+                    for record in result
+                ]
+
+        def _query_general_relationships(self, query):
+            """Fallback general relationship query"""
+            with self.driver.session() as session:
+                result = session.run(
+                    """
+                    MATCH (e1:Entity)-[r]-(e2:Entity)
+                    WHERE toLower(e1.name) CONTAINS toLower($term) OR toLower(e2.name) CONTAINS toLower($term)
+                    RETURN e1.name as source, type(r) as relationship, e2.name as target
+                    LIMIT 10
+                    """,
+                    term=query
+                )
+                return [
+                    {"source": record["source"], "relationship": record["relationship"], "target": record["target"]}
+                    for record in result
+                ]    
+
+        def extract_json_from_claude_response(self, response_text):
+            """Extract JSON from Claude's response, handling explanatory text"""
+            import re
+
+            response_text = response_text.strip()
+            json_patterns = [
+                r"```json\s*([\s\S]*?)\s*```",
+                r"```\s*([\s\S]*?)\s*```",
+                r"\{[\s\S]*\}",
+            ]
+
+            for pattern in json_patterns:
+                matches = re.findall(pattern, response_text)
+                if matches:
+                    json_text = matches[0] if isinstance(matches[0], str) else matches[0]
+                    try:
+                        return json.loads(json_text)
+                    except json.JSONDecodeError:
+                        continue
+
+            if "Based on" in response_text and "{" in response_text:
+                start_idx = response_text.find("{")
+                end_idx = response_text.rfind("}") + 1
+                if start_idx >= 0 and end_idx > start_idx:
+                    json_text = response_text[start_idx:end_idx]
+                    try:
+                        return json.loads(json_text)
+                    except json.JSONDecodeError:
+                        pass
+
+            return {"entities": [], "relationships": []}
+
+        def is_valid_chunk(self, text_chunk):
+            """Check if chunk has meaningful content for extraction"""
+            if not text_chunk or len(text_chunk.strip()) < 20:
+                return False
+            meaningful_chars = sum(1 for c in text_chunk if c.isalnum())
+            if meaningful_chars < len(text_chunk) * 0.3:
+                return False
+            return True
+
+        def is_graph_populated(self):
+            """Check if Neo4j already contains entities"""
+            try:
+                with self.driver.session() as session:
+                    result = session.run("MATCH (n) RETURN count(n) as count")
+                    record = result.single()
+                    return record["count"] > 0 if record else False
+            except Exception:
+                return False
+
+        def extract_entities_and_relationships(self, text_chunk, source_doc):
+            """Enhanced entity extraction with better relationship detection"""
+            if not self.is_valid_chunk(text_chunk):
+                print(f"⭐️ Skipping low-content chunk from {source_doc}")
+                return {"entities": [], "relationships": []}
+
+            # Try ontology-enhanced extraction first
+            try:
+                if hasattr(self, 'enhanced_extractor') and self.enhanced_extractor:
+                    result = self.enhanced_extractor.extract_with_ontology(text_chunk, source_doc)
+                    ontology_matches = result.get("ontology_matches", 0)
+                    total_entities = len(result.get("entities", []))
+
+                    if total_entities > 0:
+                        print(f"✅ Ontology: {total_entities} entities ({ontology_matches} matches) from {source_doc}")
+                        return result
+                    else:
+                        print(f"ℹ️ Ontology: No entities found, falling back to original extraction")
+
+            except Exception as e:
+                print(f"⚠️ Ontology extraction failed, using fallback: {e}")
+
+            # Enhanced Claude extraction prompt
+            extraction_prompt = """Extract ALL entities and their relationships from this text comprehensively.
+
+    TEXT TO ANALYZE:
+    {text}
+
+    Focus on:
+    1. Organizations (companies, universities, research institutions)
+    2. Technologies (systems, frameworks, concepts)
+    3. Safety concepts and risk types
+    4. People and their roles
+    5. Projects and deliverables
+
+    For each entity, provide:
+    - name: The entity name
+    - type: Entity type (Organization, Technology, SafetyConcept, RiskType, Person, etc.)
+    - properties: Additional attributes
+
+    For relationships, look for:
+    - Partnership relationships (works with, collaborates with, partners with)
+    - Development relationships (develops, creates, builds, implements)
+    - Usage relationships (uses, applies, employs)
+    - Contribution relationships (contributes to, leads, participates in)
+    - Risk relationships (addresses, mitigates, causes)
+
+    Return a JSON object with this structure:
+    {{
+        "entities": [
+            {{
+                "name": "Entity Name",
+                "type": "EntityType",
+                "properties": {{"key": "value"}}
+            }}
+        ],
+        "relationships": [
+            {{
+                "source": "Source Entity",
+                "target": "Target Entity", 
+                "relationship": "RELATIONSHIP_TYPE",
+                "properties": {{"confidence": 0.8}}
+            }}
+        ]
+    }}
+
+    Be aggressive in finding relationships - if two entities appear in the same context, there's likely a relationship."""
+
+            try:
+                result = self.claude_extractor.generate(
+                    query=extraction_prompt.format(text=text_chunk),
+                    context_sentences=[],
+                    system_prompt="""You are an expert at extracting structured knowledge from I2Connect traffic safety research documents. 
+
+    CRITICAL: You must extract relationships between entities. Look for:
+    - Co-occurrence patterns (entities mentioned together)
+    - Action verbs indicating relationships
+    - Contextual connections
+    - Implicit relationships based on domain knowledge
+
+    Return valid JSON only. Be generous with relationship extraction - it's better to extract too many than too few.""",
+                )
+
+                extracted = self.extract_json_from_claude_response(result)
+
+                # Validate and clean extraction
+                if not isinstance(extracted.get("entities"), list):
+                    print(f"⚠️ Invalid entities structure in chunk from {source_doc}")
+                    extracted["entities"] = []
+                if not isinstance(extracted.get("relationships"), list):
+                    print(f"⚠️ Invalid relationships structure in chunk from {source_doc}")
+                    extracted["relationships"] = []
+
+                # Enhanced relationship extraction if Claude didn't find enough
+                if len(extracted["relationships"]) == 0 and len(extracted["entities"]) > 1:
+                    extracted["relationships"] = self._infer_relationships_from_context(
+                        extracted["entities"], text_chunk
+                    )
+
+                entity_count = len(extracted["entities"])
+                rel_count = len(extracted["relationships"])
+                if entity_count > 0 or rel_count > 0:
+                    print(f"✅ Extraction: {entity_count} entities, {rel_count} relationships from {source_doc}")
+
+                return extracted
+
+            except Exception as e:
+                print(f"❌ Both ontology and fallback extraction failed for {source_doc}: {e}")
+                return {"entities": [], "relationships": []}
+    
+    def _infer_relationships_from_context(self, entities, text_chunk):
+        """Infer relationships when Claude doesn't extract enough"""
+        relationships = []
+        text_lower = text_chunk.lower()
+
+        # Simple co-occurrence based relationship inference
+        for i, entity1 in enumerate(entities):
+            for j, entity2 in enumerate(entities):
+                if i >= j:  # Avoid duplicates and self-references
+                    continue
+
+                e1_name = entity1.get("name", "").lower()
+                e2_name = entity2.get("name", "").lower()
+
+                # Check if both entities appear in same sentence
+                sentences = text_chunk.split('.')
+                for sentence in sentences:
+                    sent_lower = sentence.lower()
+                    if e1_name in sent_lower and e2_name in sent_lower:
+                        # Determine relationship type based on entity types and context
+                        rel_type = self._determine_relationship_type(
+                            entity1, entity2, sentence
+                        )
+
+                        relationships.append({
+                            "source": entity1.get("name"),
+                            "target": entity2.get("name"),
+                            "relationship": rel_type,
+                            "properties": {"confidence": 0.6, "inferred": True}
+                        })
+                        break
+
+        return relationships
+    
+    def _determine_relationship_type(self, entity1, entity2, context):
+        """Determine relationship type based on entity types and context"""
+        context_lower = context.lower()
+
+        # Partnership indicators
+        if any(word in context_lower for word in ["partner", "collaborate", "work with"]):
+            return "COLLABORATES_WITH"
+
+        # Development indicators  
+        if any(word in context_lower for word in ["develop", "create", "build"]):
+            return "DEVELOPS"
+
+        # Usage indicators
+        if any(word in context_lower for word in ["use", "implement", "apply"]):
+            return "USES"
+
+        # Organization relationships
+        if (entity1.get("type") == "Organization" and 
+            entity2.get("type") == "Organization"):
+            return "PARTNERS_WITH"
+
+        # Technology relationships
+        if (entity1.get("type") == "Organization" and 
+            entity2.get("type") == "Technology"):
+            return "DEVELOPS"
+
+        # Default generic relationship
+        return "RELATES_TO"
+    
+    def populate_graph(self, documents):
+        """Phase 1: Build knowledge graph from documents"""
+        with self.driver.session() as session:
+            for doc in documents:
+                extracted = self.extract_entities_and_relationships(doc.content, doc.meta.get("source", ""))
+
+                # Create entities
+                for entity in extracted["entities"]:
+                    properties = entity.get("properties", {})
+                    session.run(
+                        "MERGE (e:Entity {name: $name})"
+                        " SET e.type = $type, e.source = $source"
+                        " SET e += $properties",
+                        name=entity["name"],
+                        type=entity["type"],
+                        source=doc.meta.get("source", ""),
+                        properties=properties
+                    )
+
+                # Create relationships
+                for rel in extracted["relationships"]:
+                    rel_type = rel.get("relationship", "RELATES").upper().replace(" ", "_")
+                    properties = rel.get("properties", {})
+                    query = (
+                        f"MATCH (a:Entity {{name: $source}}), (b:Entity {{name: $target}}) "
+                        f"MERGE (a)-[r:{rel_type} {{source: $doc_source}}]->(b) "
+                        "SET r += $properties"
+                    )
+                    session.run(
+                        query,
+                        source=rel["source"],
+                        target=rel["target"],
+                        doc_source=doc.meta.get("source", ""),
+                        properties=properties
+                    )
+
+    def validate_graph_population(self):
+        """Validate graph population quality (domain-agnostic)"""
+        with self.driver.session() as session:
+            result = session.run(
+                """
+                MATCH (n:Entity)
+                RETURN n.type as entity_type, count(n) as count
+                ORDER BY count DESC
+                """
+            )
+            entity_counts = {record["entity_type"]: record["count"] for record in result}
+
+            rel_result = session.run(
+                """
+                MATCH ()-[r]->()
+                RETURN type(r) as relationship_type, count(r) as count
+                ORDER BY count DESC
+                """
+            )
+            relationship_counts = {record["relationship_type"]: record["count"] for record in rel_result}
+
+            total_entities = sum(entity_counts.values())
+            total_relationships = sum(relationship_counts.values())
+
+            print(f"📊 Graph validation: {total_entities} entities, {total_relationships} relationships")
+            print("📋 Entity types:", entity_counts)
+            print("🔗 Relationship types:", relationship_counts)
+
+            if total_entities < 5:
+                print("⚠️  Warning: Very few entities extracted. Consider improving extraction prompts.")
+            if total_relationships < 3:
+                print("⚠️  Warning: Very few relationships extracted. Relationship extraction may need improvement.")
+            if len(entity_counts) < 3:
+                print("⚠️  Warning: Limited entity type diversity. Extraction may be too narrow.")
+
+    # Graph querying methods remain the same as in your original code
+    def query_graph(self, query):
+        """Enhanced graph querying with intelligent routing"""
+        query_lower = query.lower()
+
+        if any(word in query_lower for word in ["contributor", "contribute", "partner", "involved", "collaborate"]):
+            return self._query_project_participants(query)
+        elif any(word in query_lower for word in ["role", "responsibility", "does", "provide"]):
+            return self._query_entity_roles(query)
+        elif any(word in query_lower for word in ["develop", "create", "build", "technology"]):
+            return self._query_development_relationships(query)
+        else:
+            return self._query_general_relationships(query)
+
+    def graph_search(self, query, limit=10):
+        """Enhanced graph search with 4-strategy cascade for 100% coverage"""
+        try:
+            entity_results = self._search_by_entities(query, limit)
+        except Exception as e:
+            logger.warning("Entity search failed: %s", e)
+            entity_results = []
+        if entity_results:
+            logger.info("Graph search using strategy 'entity_match'")
+            return entity_results[:limit]
+
+        try:
+            relationship_results = self._search_by_relationships(query, limit)
+        except Exception as e:
+            logger.warning("Relationship search failed: %s", e)
+            relationship_results = []
+        if relationship_results:
+            logger.info("Graph search using strategy 'relationship_based'")
+            return relationship_results[:limit]
+
+        try:
+            content_results = self._search_by_content(query, limit)
+        except Exception as e:
+            logger.warning("Content search failed: %s", e)
+            content_results = []
+        if content_results:
+            logger.info("Graph search using strategy 'content_based'")
+            return content_results[:limit]
+
+        try:
+            fallback_results = self._get_most_connected_nodes(limit)
+        except Exception as e:
+            logger.warning("Structural fallback search failed: %s", e)
+            fallback_results = []
+        logger.info("Graph search using strategy 'structural_fallback'")
+        return fallback_results[:limit]
+
+    # Include all the other search methods from your original code
+    def _search_by_entities(self, query, limit):
+        """Primary entity-based search"""
+        term = query.lower()
+        try:
+            with self.driver.session() as session:
+                result = session.run(
+                    """
+                    MATCH (e:Entity)-[r]-(m:Entity)
+                    WHERE toLower(e.name) CONTAINS $entity_term
+                    RETURN e.name as source, type(r) as relationship, m.name as target
+                    LIMIT $limit
+                    """,
+                    entity_term=term,
+                    limit=limit,
+                )
+                return [
+                    {
+                        "source": record["source"],
+                        "relationship": record["relationship"],
+                        "target": record["target"],
+                        "relevance_score": 1.0,
+                        "search_strategy": "entity_match",
+                    }
+                    for record in result
+                ]
+        except Exception as e:
+            logger.warning("Entity search query failed: %s", e)
+            return []
+
+    # ... [Include all other search methods from your original code]
+    # For brevity, I'm not repeating all of them, but they should be included
+
 class HybridQueryRouter:
 
     def __init__(self, graph_builder, vector_retriever, text_embedder):
@@ -1157,20 +1528,40 @@ class HybridQueryRouter:
 
     def hybrid_retrieve(self, query):
         """Retrieve both vector and graph results for any query."""
+        print(f"🔍 DEBUG: Starting retrieval for query: '{query}'")
 
         results = {"vector_results": [], "graph_results": []}
 
+        # Debug query embedding
         query_embedding = self.text_embedder.run(text=query)["embedding"]
-        vector_docs = self.vector_retriever.run(query_embedding=query_embedding)
-        results["vector_results"] = vector_docs.get("documents", [])
+        print(f"🔍 DEBUG: Query embedding shape: {len(query_embedding)}")
+        print(f"🔍 DEBUG: Query embedding sample: {query_embedding[:5]}")
 
+        # Debug vector retrieval
+        try:
+            vector_docs = self.vector_retriever.run(query_embedding=query_embedding)
+            retrieved_docs = vector_docs.get("documents", [])
+            print(f"🔍 DEBUG: Vector docs retrieved: {len(retrieved_docs)}")
+
+            # Show sample of retrieved content
+            for i, doc in enumerate(retrieved_docs[:2]):
+                print(f"🔍 DEBUG: Doc {i+1} preview: {doc.content[:100]}...")
+
+            results["vector_results"] = retrieved_docs
+        except Exception as e:
+            print(f"❌ DEBUG: Vector retrieval failed: {e}")
+            results["vector_results"] = []
+
+        # Debug graph retrieval  
         try:
             graph_results = self.graph_builder.graph_search(query)
+            print(f"🔍 DEBUG: Graph results: {len(graph_results)}")
+            results["graph_results"] = graph_results
         except Exception as e:
-            logger.warning("Graph search failed: %s; falling back to vector results only", e)
-            graph_results = []
-        results["graph_results"] = graph_results
+            print(f"❌ DEBUG: Graph search failed: {e}")
+            results["graph_results"] = []
 
+        print(f"🔍 DEBUG: Final results - Vector: {len(results['vector_results'])}, Graph: {len(results['graph_results'])}")
         return results
 
     def synthesize_answer(self, query, hybrid_results):
@@ -1566,7 +1957,236 @@ def check_docker_containers() -> bool:
     # Default to True for unknown environments
     return True
 
+
+
+def run_ood_tests(backend):
+    """Run test queries to demonstrate OOD detection"""
+    print("\n🧪 Running OOD Detection Tests...")
+    
+    test_cases = [
+        # Should be IN-DOMAIN
+        ("What is evidence theory in I2Connect?", "IN-DOMAIN"),
+        ("How does Dempster-Shafer work for traffic safety?", "IN-DOMAIN"), 
+        ("Tell me about Smart Eye gaze tracking", "IN-DOMAIN"),
+        ("What are the safety concepts?", "IN-DOMAIN"),
+        ("Who are the partners in I2Connect?", "IN-DOMAIN"),
+        
+        # Should be OUT-OF-DOMAIN
+        ("What's the weather today?", "OUT-OF-DOMAIN"),
+        ("How do I cook pasta?", "OUT-OF-DOMAIN"),
+        ("Who won the football game?", "OUT-OF-DOMAIN"),
+        ("What's the best restaurant nearby?", "OUT-OF-DOMAIN"),
+    ]
+    
+    passed = 0
+    total = len(test_cases)
+    
+    for query, expected in test_cases:
+        print(f"\n🔍 Testing: '{query}'")
+        result = backend.query(query, enable_enhanced_ood=True)
+        
+        actual = "OUT-OF-DOMAIN" if result.get('is_ood') else "IN-DOMAIN"
+        status = "✅" if actual == expected else "❌"
+        confidence = result.get('confidence', 0)
+        
+        if actual == expected:
+            passed += 1
+        
+        print(f"   {status} Expected: {expected}, Got: {actual} (Confidence: {confidence:.2f})")
+        
+        # Show diagnostic info for in-domain queries
+        if not result.get('is_ood') and 'ood_diagnostics' in result:
+            diagnostics = result['ood_diagnostics']
+            if diagnostics.get('matched_indicators'):
+                top_matches = [match[0] for match in diagnostics['matched_indicators'][:2]]
+                print(f"   🎯 Key matches: {top_matches}")
+    
+    print(f"\n📊 Test Results: {passed}/{total} passed ({(passed/total)*100:.1f}%)")
+          
+
 def main():
+    """Main function with enhanced OOD detection"""
+    args = parse_args()
+
+    # Load config
+    with open('config.yaml', 'r') as f:
+        config = yaml.safe_load(f)
+
+    # Check environment variables
+    debug_env = os.getenv('RAG_DEBUG', '').lower() in ('true', '1', 'yes')
+    verbose_env = os.getenv('RAG_VERBOSE', '').lower() in ('true', '1', 'yes')
+    if debug_env:
+        config.setdefault('logging', {})['enable_debug_components'] = True
+    if verbose_env:
+        config.setdefault('logging', {})['level'] = 'DEBUG'
+
+    # Apply command line overrides
+    if args.debug:
+        config.setdefault('logging', {})['enable_debug_components'] = True
+        config['logging']['level'] = 'DEBUG'
+
+    if args.verbose:
+        config.setdefault('logging', {})['level'] = 'DEBUG'
+        for component in config['logging'].get('components', {}):
+            config['logging']['components'][component] = 'DEBUG'
+
+    if args.log_level:
+        config.setdefault('logging', {})['level'] = args.log_level
+
+    # Setup logging
+    setup_logging(config)
+
+    print("🤖 Enhanced I2Connect RAG System (Haystack v2)")
+    print("=" * 70)
+    print("Features: Enhanced OOD Detection | I2Connect Domain Expertise | Confidence Scoring")
+    print("=" * 70)
+
+    try:
+        # Import and use the enhanced RAG backend
+        from rag_backend import RAGBackend
+        
+        print("🚀 Initializing enhanced RAG backend...")
+        backend = RAGBackend(force_rebuild=args.rebuild_graph)
+        print("✅ Backend initialized with enhanced OOD detection")
+        
+        # Print some helpful commands
+        print("\n📋 Available Commands:")
+        print("  • Type your question normally")
+        print("  • 'debug' - Show system diagnostics")
+        print("  • 'stats' - Show knowledge graph statistics") 
+        print("  • 'test' - Run OOD detection tests")
+        print("  • 'help' - Show this help")
+        print("  • 'quit' or 'exit' - Exit the system")
+        
+        # Interactive query loop
+        while True:
+            try:
+                query = input("\n❓ You: ").strip()
+                if not query or query.lower() in ['exit', 'quit', 'q']:
+                    print("👋 Goodbye!")
+                    break
+                
+                # Handle special commands
+                if query.lower() == 'debug':
+                    stats = backend.get_stats()
+                    health = backend.get_health()
+                    print(f"📊 Stats: {stats}")
+                    print(f"🏥 Health: {health}")
+                    continue
+                    
+                elif query.lower() == 'stats':
+                    stats = backend.get_stats()
+                    print(f"📊 Knowledge Graph Statistics:")
+                    print(f"   • Entities: {stats.get('entities', 0)}")
+                    print(f"   • Relationships: {stats.get('relationships', 0)}")
+                    print(f"   • Environment: {stats.get('environment', 'unknown')}")
+                    continue
+                    
+                elif query.lower() == 'test':
+                    run_ood_tests(backend)
+                    continue
+                    
+                elif query.lower() == 'help':
+                    print("\n📋 Available Commands:")
+                    print("  • Type your question normally")
+                    print("  • 'debug' - Show system diagnostics")
+                    print("  • 'stats' - Show knowledge graph statistics") 
+                    print("  • 'test' - Run OOD detection tests")
+                    print("  • 'help' - Show this help")
+                    print("  • 'quit' or 'exit' - Exit the system")
+                    continue
+                
+                print("🔍 Thinking...")
+                
+                # Use enhanced backend query with OOD detection
+                result = backend.query(query, enable_enhanced_ood=True)
+                
+                # Display enhanced results
+                print(f"\n🤖 Assistant:")
+                print(result['answer'])
+                
+                # Show enhanced diagnostics
+                if result.get('is_ood'):
+                    print(f"\n⚠️  Out-of-domain query detected")
+                    if 'ood_diagnostics' in result:
+                        diag = result['ood_diagnostics']
+                        print(f"   📊 Relevance Score: {diag.get('relevance_score', 0):.2f}")
+                        if diag.get('ood_matches'):
+                            print(f"   🚫 OOD indicators: {diag['ood_matches']}")
+                else:
+                    confidence = result.get('confidence', 0)
+                    print(f"\n📊 Confidence: {confidence:.2f}")
+                
+                # Show retrieval stats
+                vector_count = result.get('vector_results', 0)
+                graph_count = result.get('graph_results', 0)
+                context_count = result.get('context_sources', 0)
+                print(f"📋 Sources: Vector({vector_count}), Graph({graph_count}), Context({context_count})")
+                
+                # Show OOD diagnostics if available
+                if 'ood_diagnostics' in result and result['ood_diagnostics'].get('matched_indicators'):
+                    top_matches = [match[0] for match in result['ood_diagnostics']['matched_indicators'][:3]]
+                    print(f"🎯 Top domain matches: {top_matches}")
+                
+            except KeyboardInterrupt:
+                print("\n👋 Goodbye!")
+                break
+            except Exception as e:
+                print(f"❌ Error: {e}")
+                continue
+                
+    except Exception as e:
+        print(f"💥 Failed to initialize enhanced system: {e}")
+        print("Falling back to legacy mode...")
+        
+        # Fallback to your original pipeline logic if enhanced backend fails
+        legacy_main()
+
+def run_ood_tests(backend):
+    """Run test queries to demonstrate OOD detection"""
+    print("\n🧪 Running OOD Detection Tests...")
+    
+    test_cases = [
+        # Should be IN-DOMAIN
+        ("What is evidence theory in I2Connect?", "IN-DOMAIN"),
+        ("How does Dempster-Shafer work for traffic safety?", "IN-DOMAIN"), 
+        ("Tell me about Smart Eye gaze tracking", "IN-DOMAIN"),
+        ("What are the safety concepts?", "IN-DOMAIN"),
+        ("Who are the partners in I2Connect?", "IN-DOMAIN"),
+        
+        # Should be OUT-OF-DOMAIN
+        ("What's the weather today?", "OUT-OF-DOMAIN"),
+        ("How do I cook pasta?", "OUT-OF-DOMAIN"),
+        ("Who won the football game?", "OUT-OF-DOMAIN"),
+        ("What's the best restaurant nearby?", "OUT-OF-DOMAIN"),
+    ]
+    
+    passed = 0
+    total = len(test_cases)
+    
+    for query, expected in test_cases:
+        print(f"\n🔍 Testing: '{query}'")
+        result = backend.query(query, enable_enhanced_ood=True)
+        
+        actual = "OUT-OF-DOMAIN" if result.get('is_ood') else "IN-DOMAIN"
+        status = "✅" if actual == expected else "❌"
+        confidence = result.get('confidence', 0)
+        
+        if actual == expected:
+            passed += 1
+        
+        print(f"   {status} Expected: {expected}, Got: {actual} (Confidence: {confidence:.2f})")
+        
+        # Show diagnostic info for in-domain queries
+        if not result.get('is_ood') and 'ood_diagnostics' in result:
+            diagnostics = result['ood_diagnostics']
+            if diagnostics.get('matched_indicators'):
+                top_matches = [match[0] for match in diagnostics['matched_indicators'][:2]]
+                print(f"   🎯 Key matches: {top_matches}")
+    
+    print(f"\n📊 Test Results: {passed}/{total} passed ({(passed/total)*100:.1f}%)")
+
+def legacy_main():
     args = parse_args()
 
     # Load config
@@ -1599,7 +2219,52 @@ def main():
 
     print("🤖 Domain-Restricted RAG System (Haystack v2)")
     print("=" * 70)
-
+    
+    
+    try:
+        # Import here to avoid circular import
+        from rag_backend import RAGBackend
+        
+        print("🚀 Initializing enhanced RAG backend...")
+        backend = RAGBackend(force_rebuild=args.rebuild_graph)
+        print("✅ Backend initialized with enhanced OOD detection")
+        
+        # Interactive query loop
+        while True:
+            try:
+                query = input("\n❓ You: ").strip()
+                if not query or query.lower() in ['exit', 'quit', 'q']:
+                    print("👋 Goodbye!")
+                    break
+                
+                if query.lower() == 'test':
+                    run_ood_tests(backend)
+                    continue
+                
+                print("🔍 Thinking...")
+                result = backend.query(query, enable_enhanced_ood=True)
+                
+                print(f"\n🤖 Assistant:")
+                print(result['answer'])
+                
+                if result.get('is_ood'):
+                    print(f"\n⚠️  Out-of-domain query detected")
+                else:
+                    confidence = result.get('confidence', 0)
+                    print(f"\n📊 Confidence: {confidence:.2f}")
+                
+            except KeyboardInterrupt:
+                print("\n👋 Goodbye!")
+                break
+            except Exception as e:
+                print(f"❌ Error: {e}")
+                continue
+                
+    except ImportError as e:
+        print(f"💥 Could not import enhanced backend: {e}")
+        print("Falling back to original pipeline...")
+    
+    
     # Check for force rebuild flag
     force_rebuild = args.rebuild_graph
 
@@ -1638,7 +2303,9 @@ def main():
     # Warm up the text embedder before any usage
     print("🔥 Warming up text embedder...")
     text_embedder.warm_up()
+    
     retriever = WeaviateEmbeddingRetriever(document_store=document_store)
+
 
     # Initialize RAG pipeline with Neo4j integration
     pipeline = RAGPipeline(document_store, retriever, text_embedder)

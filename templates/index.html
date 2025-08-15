@@ -576,39 +576,27 @@
 
         function formatResponse(text) {
             let formatted = text;
-
-            // Convert numbered headings (keep as headings, don't turn into lists)
-            formatted = formatted.replace(/^(\d+\.\s+[^:\n]+):\s*$/gm, '<h4>$1</h4>');
-            formatted = formatted.replace(/^([A-Za-z][^:\n]+):\s*$/gm, '<h4>$1</h4>');
-
-            // Bold text
+            
+            // Since the backend now handles formatting, we only need minimal frontend processing
+            
+            // Convert **text** to bold (if not already done by backend)
             formatted = formatted.replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>');
-
-            // Handle lists more carefully - avoid converting numbered headings
-            // Only convert bullet points to lists, not numbered items that are headings
-            formatted = formatted.replace(/^\s*[-*•]\s+(.+?)$/gm, '<li class="bullet">$1</li>');
             
-            // Wrap bullet lists only
-            formatted = formatted.replace(/(<li class="bullet">.*?<\/li>\s*)+/gs, match => `<ul>${match}</ul>`);
-
-            // Clean classes
-            formatted = formatted.replace(/<li class="bullet">/g, '<li>');
-
-            // Handle paragraphs and line breaks more carefully
-            // Split by double newlines for paragraphs
-            let paragraphs = formatted.split(/\n\n+/);
+            // Convert line breaks to HTML
+            formatted = formatted.replace(/\n/g, '<br>');
             
-            formatted = paragraphs.map(para => {
-                // Don't wrap headings or lists in paragraph tags
-                if (para.startsWith('<h4>') || para.startsWith('<ul>') || para.startsWith('<ol>')) {
-                    return para;
-                }
-                // Convert single newlines to <br> within paragraphs
-                para = para.replace(/\n/g, '<br>');
-                // Wrap in paragraph tags if not empty
-                return para.trim() ? `<p>${para}</p>` : '';
-            }).filter(para => para).join('');
-
+            // Handle paragraphs separated by double line breaks
+            formatted = formatted.replace(/<br><br>/g, '</p><p>');
+            
+            // Wrap the entire content in a paragraph if it doesn't start with HTML tags
+            if (!formatted.match(/^<[h1-6|ul|ol|div]/)) {
+                formatted = '<p>' + formatted + '</p>';
+            }
+            
+            // Clean up any empty paragraphs
+            formatted = formatted.replace(/<p><\/p>/g, '');
+            formatted = formatted.replace(/<p>\s*<\/p>/g, '');
+            
             return formatted;
         }
 
@@ -854,11 +842,6 @@
             `;
         }
 
-        // Focus on input when page loads
-        window.addEventListener('load', () => {
-            textarea.focus();
-        });
-    
         async function loadSystemStats() {
             try {
                 // Fetch stats from your API
@@ -898,10 +881,10 @@
             }
         }
 
-        // Load stats when page loads
+        // Focus on input when page loads and load stats
         window.addEventListener('load', () => {
             textarea.focus();
-            loadSystemStats(); // Add this line to your existing load event
+            loadSystemStats();
         });
 
         // Optional: Refresh stats every 30 seconds

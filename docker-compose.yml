@@ -17,9 +17,11 @@ services:
       QUERY_DEFAULTS_LIMIT: 25
       AUTHENTICATION_ANONYMOUS_ACCESS_ENABLED: 'true'
       PERSISTENCE_DATA_PATH: '/var/lib/weaviate'
+      # Railway-optimized: Use text2vec-transformers with all-MiniLM-L6-v2
       DEFAULT_VECTORIZER_MODULE: 'text2vec-transformers'
       ENABLE_MODULES: 'text2vec-transformers'
       CLUSTER_HOSTNAME: 'node1'
+      # Use local transformers service
       TRANSFORMERS_INFERENCE_API: 'http://t2v-transformers:8080'
     depends_on:
       t2v-transformers:
@@ -28,10 +30,14 @@ services:
       production8_weaviate-net:
         aliases:
           - weaviate
+  
   t2v-transformers:
+    # Railway-optimized: all-MiniLM-L6-v2 (90MB, 384 dims, fast)
     image: cr.weaviate.io/semitechnologies/transformers-inference:sentence-transformers-all-MiniLM-L6-v2
     environment:
       ENABLE_CUDA: '0'
+    ports:
+      - "9090:8080"  # For debugging
     healthcheck:
       test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8080/.well-known/ready')"]
       interval: 10s
@@ -42,6 +48,7 @@ services:
       production8_weaviate-net:
         aliases:
           - t2v-transformers
+  
   neo4j:
     image: neo4j:community
     ports:
@@ -55,11 +62,13 @@ services:
       production8_weaviate-net:
         aliases:
           - neo4j
+
 networks:
   production8_weaviate-net:
     driver: bridge
     ipam:
       config:
         - subnet: "172.29.0.0/16"
+
 volumes:
   neo4j_data:
